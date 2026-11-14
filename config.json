@@ -70,6 +70,31 @@
           "name": "USD/CHF",
           "symbol": "CHF=X",
           "alert_pct": 1
+        },
+        {
+          "name": "S&P 500",
+          "symbol": "^GSPC",
+          "alert_pct": 2
+        },
+        {
+          "name": "Nasdaq",
+          "symbol": "^IXIC",
+          "alert_pct": 2.5
+        },
+        {
+          "name": "Euro Stoxx 50",
+          "symbol": "^STOXX50E",
+          "alert_pct": 2
+        },
+        {
+          "name": "SMI",
+          "symbol": "^SSMI",
+          "alert_pct": 2
+        },
+        {
+          "name": "VIX",
+          "symbol": "^VIX",
+          "alert_pct": 15
         }
       ]
     }
