@@ -1,0 +1,6 @@
+[Unit]
+Description=Update Geowatch from GitHub
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/geowatch/deploy/update.sh

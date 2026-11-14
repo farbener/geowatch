@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Geowatch</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { --bg:#12161c; --panel:#1b212a; --text:#dde3ea; --dim:#8794a3; --line:#2b3440;
+          --boiling:#e5484d; --rising:#f5a524; --stable:#3fb68b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui,sans-serif; background:var(--bg); color:var(--text);
+         display:grid; grid-template:auto auto auto 1fr / 1fr 420px; height:100vh; }
+  header { grid-column:1/3; padding:8px 14px; background:var(--panel); border-bottom:1px solid var(--line);
+           display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  header b { font-size:16px; }
+  header span, label { color:var(--dim); font-size:13px; }
+  #errors { color:var(--rising); cursor:help; }
+  #ticker { grid-column:1/3; display:flex; align-items:stretch; height:32px; background:#0d1014;
+            border-bottom:1px solid var(--line); overflow:hidden; white-space:nowrap; }
+  #ticker > b { background:var(--boiling); color:#fff; padding:0 14px; display:flex; align-items:center;
+                font-size:12px; letter-spacing:.1em; flex:none; z-index:1; }
+  #tickerWrap { flex:1; overflow:hidden; display:flex; align-items:center; }
+  #tickerTrack { display:inline-block; padding-left:24px; animation:ticker 90s linear infinite; }
+  #ticker:hover #tickerTrack { animation-play-state:paused; }
+  @keyframes ticker { to { transform:translateX(-50%); } }
+  .tick { margin-right:56px; cursor:pointer; }
+  .tick:hover { text-decoration:underline; }
+  .tick time { color:var(--dim); margin:0 8px 0 6px; }
+  .tick small { color:var(--dim); margin-left:8px; }
+  #status { grid-column:1/3; display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap;
+            padding:5px 14px; font-size:13px; background:var(--panel); border-bottom:1px solid var(--line); }
+  #status .bad { color:var(--boiling); font-weight:600; }
+  #status .warn { color:var(--rising); }
+  #status .ok { color:var(--stable); }
+  #status button { padding:0 8px; margin-left:8px; font-size:12px; }
+  #map { min-height:0; }
+  aside { overflow-y:auto; background:var(--panel); border-left:1px solid var(--line); }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:14px 14px 6px; }
+  #filters { padding:0 14px 10px; border-bottom:1px solid var(--line); display:grid; gap:7px; }
+  #cats { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+  #filters label { color:var(--text); display:flex; align-items:center; gap:6px; }
+  select, input[type=search] { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 6px; flex:1; }
+  #detail { border-bottom:1px solid var(--line); padding-bottom:6px; }
+  #detail p { margin:4px 14px 8px; }
+  #detail p.dim { color:var(--dim); font-size:12px; }
+  .leaflet-interactive:focus { outline:none; }
+  .live { padding:5px 14px; border-bottom:1px solid var(--line); cursor:pointer; display:flex; gap:8px; }
+  .live time { color:var(--dim); font-variant-numeric:tabular-nums; flex:none; }
+  .live.fresh { background:#3a2a12; }
+  #liveDot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--boiling); margin-right:6px; animation:pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity:.25; } }
+  .pot, .event { padding:7px 14px; border-bottom:1px solid var(--line); }
+  .pot { display:flex; justify-content:space-between; cursor:pointer; }
+  .pot.active { background:#26303c; }
+  .tag { font-size:11px; padding:1px 7px; border-radius:9px; color:#111; font-weight:600; }
+  .boiling { background:var(--boiling); } .rising { background:var(--rising); } .stable { background:var(--stable); }
+  .event small { color:var(--dim); display:block; margin-top:2px; }
+  .event.unverified { opacity:.55; }
+  .event.popup { padding:0; border:0; font-size:13px; }
+  .event.popup small { color:#555; margin-top:4px; }
+  a { color:#7fb4ff; text-decoration:none; } a:hover { text-decoration:underline; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; flex:none; }
+  button { background:#26303c; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:3px 10px; cursor:pointer; }
+  #toasts { position:fixed; left:14px; bottom:14px; z-index:1000; display:flex; flex-direction:column; gap:8px; max-width:420px; }
+  .toast { background:var(--panel); border:1px solid var(--boiling); border-left-width:4px; border-radius:6px;
+           padding:8px 12px; cursor:pointer; box-shadow:0 4px 14px #0008; }
+  .toast b { display:block; font-size:12px; color:var(--rising); }
+  @media (max-width:800px) { body { grid-template:auto auto auto 45vh 1fr / 1fr; } header, #ticker, #status { grid-column:1; } }
+  @media (prefers-reduced-motion:reduce) { #tickerTrack { animation:none; } }
+</style>
+</head>
+<body>
+<header>
+  <b>Geowatch</b>
+  <span id="updated">loading…</span>
+  <span id="errors"></span>
+  <button id="alertBtn">Enable alerts</button>
+</header>
+<div id="ticker"><b>LIVE</b><div id="tickerWrap"><div id="tickerTrack"></div></div></div>
+<div id="status"><span id="changes"></span><span id="health"></span></div>
+<div id="toasts"></div>
+<div id="map"></div>
+<aside>
+  <h2>Filters</h2>
+  <div id="filters">
+    <div id="cats"></div>
+    <label>Region <select id="region"></select></label>
+    <label>Period <select id="hours"><option value="24">last 24 hours</option><option value="72" selected>last 72 hours</option></select></label>
+    <label><input type="checkbox" id="showUnverified" checked> include unverified (single source)</label>
+    <label><input type="checkbox" id="importantOnly"> important only</label>
+    <input type="search" id="q" placeholder="Search titles, e.g. Illinois">
+    <label><input type="checkbox" id="searchAll" checked> search ignores the region filter</label>
+    <button id="reset" type="button">Reset filters</button>
+  </div>
+  <h2><i id="liveDot"></i>Live: important events, last 6 hours</h2><div id="live"></div>
+  <div id="detail"></div>
+  <h2>Boiling pots</h2><div id="pots"></div>
+  <h2 id="eventsTitle">Events</h2><div id="events"></div>
+</aside>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const LEVEL_COLORS = { boiling: "#e5484d", rising: "#f5a524", stable: "#3fb68b" };
+const CATEGORIES = {  // id: [colour, label]
+  movement: ["#4da3ff", "Troop movement"], combat: ["#ff7a45", "Combat"],
+  diplomacy: ["#b58cff", "Diplomacy"], incident: ["#f5d90a", "Security incident"],
+};
+const map = L.map("map", { maxBounds: [[-85, -180], [85, 180]], maxBoundsViscosity: 1 });
+// On wide screens the world would repeat side by side when zoomed out; never show more than one world.
+const minZoom = Math.max(2, Math.ceil(Math.log2(map.getSize().x / 256)));
+map.setMinZoom(minZoom).setView([35, 40], Math.max(3, minZoom));
+// Esri street map: English labels worldwide, no API key (OpenStreetMap's own tiles use local scripts)
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+            { attribution: "Tiles © Esri", maxZoom: 12 }).addTo(map);
+const frontlines = L.layerGroup().addTo(map);
+const markers = L.layerGroup().addTo(map);
+const eventMarkers = L.layerGroup().addTo(map);
+const $ = id => document.getElementById(id);
+let data = null;
+
+// Feed titles are untrusted: always insert as text, never as HTML.
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text) e.textContent = text;
+  return e;
+}
+const ago = ts => {
+  const m = Math.round((Date.now() / 1000 - ts) / 60);
+  return m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago";
+};
+const regionName = id => (data.hotspots.find(h => h.id === id) || { name: "Worldwide" }).name;
+
+// ---------- filters ----------
+
+for (const [id, [color, label]] of Object.entries(CATEGORIES)) {
+  const box = el("label");
+  const input = el("input");
+  input.type = "checkbox"; input.checked = true; input.value = id;
+  const dot = el("i", "dot");
+  dot.style.background = color;
+  box.append(input, dot, label);
+  $("cats").append(box);
+}
+
+function fillRegions() {
+  if ($("region").options.length) return;
+  const add = (value, label) => $("region").append(new Option(label, value));
+  add("", "Everywhere");
+  add("hotspots", "Watched regions only");
+  add("world", "Rest of the world only");
+  data.hotspots.forEach(h => add(h.id, h.name));
+}
+
+function visibleEvents() {
+  const cats = new Set([...document.querySelectorAll("#cats input:checked")].map(i => i.value));
+  const region = $("region").value, q = $("q").value.trim().toLowerCase();
+  const since = Date.now() / 1000 - $("hours").value * 3600;
+  return data.events.filter(e =>
+    (e.verified || $("showUnverified").checked) && (e.important || !$("importantOnly").checked) && cats.has(e.category) && e.ts > since &&
+    (!region || (q && $("searchAll").checked) || (region === "hotspots" ? e.hotspot !== "world" : e.hotspot === region)) &&
+    (!q || e.title.toLowerCase().includes(q)));
+}
+
+// ---------- rendering ----------
+
+// Top of the side panel: a map guide, or the situation in the selected region.
+function renderDetail() {
+  const box = $("detail");
+  box.replaceChildren();
+  const h = data.hotspots.find(h => h.id === $("region").value);
+  if (!h) {
+    box.append(el("h2", "", "How to read this map"));
+    ["Large circles are watched regions. Green = normal activity, orange = above normal, red = boiling (3+ verified events in 24h and at least double the usual level).",
+     "Small dots are single events, coloured by type as in the filters above. Solid = confirmed by 2+ independent sources, dashed = one source only.",
+     "Security incidents and military movements are collected worldwide, not only in watched regions. Those without a known place appear in the list only.",
+     "Shaded areas in Ukraine: red and dark red = Russian-held, grey = status unknown (contested). Hover for the status.",
+     "The Live list shows important events: confirmed by 2+ sources, or with severe keywords such as explosion, killed, missile. New entries are highlighted and trigger an alert.",
+     "Pick a region for an explanation of what is going on there."].forEach(t => box.append(el("p", "", t)));
+    return;
+  }
+  const verified = data.events.filter(e => e.hotspot === h.id && e.verified);
+  const count = c => verified.filter(e => e.category === c).length;
+  const trend = { boiling: "far above normal", rising: "above normal", stable: "normal or below" }[h.level];
+  box.append(
+    el("h2", "", h.name),
+    el("p", "", h.background),
+    el("p", "", `Now: ${h.n24} verified events in the last 24h, usual level ${h.base} per day (${trend}).`),
+    el("p", "", `Last 72h: ${count("movement")} troop movement, ${count("combat")} combat, ${count("diplomacy")} diplomacy, ${count("incident")} incident reports.`),
+    el("p", "dim", "Background text is static (config.json, written Nov 2026)."));
+}
+
+function selectRegion(h) {
+  const same = $("region").value === h.id;
+  $("region").value = same ? "" : h.id;
+  if (!same) map.setView([h.lat, h.lon], 5);
+  render();
+}
+
+function renderPots() {
+  const order = { boiling: 0, rising: 1, stable: 2 };
+  $("pots").replaceChildren();
+  markers.clearLayers();
+  [...data.hotspots].sort((a, b) => order[a.level] - order[b.level] || b.n24 - a.n24).forEach(h => {
+    const row = el("div", "pot" + ($("region").value === h.id ? " active" : ""));
+    row.append(el("span", "", h.name), el("span", "tag " + h.level, `${h.level} · ${h.n24}/24h`));
+    row.title = `${h.n24} verified events in 24h, baseline ${h.base}/day`;
+    row.onclick = () => selectRegion(h);
+    $("pots").append(row);
+    L.circleMarker([h.lat, h.lon], { radius: 8 + Math.min(h.n24, 12), color: LEVEL_COLORS[h.level], fillOpacity: .3 })
+      .bindTooltip(`${h.name}: ${h.level} (${h.n24}/24h)`).on("click", row.onclick).addTo(markers);
+  });
+}
+
+function renderEvents() {
+  const events = visibleEvents();
+  $("eventsTitle").textContent = `Events (${events.length})`;
+  $("events").replaceChildren();
+  eventMarkers.clearLayers();
+  const stacked = {};  // events sharing a position are spread in a spiral so all stay clickable
+  events.forEach(e => {
+    const row = el("div", "event" + (e.verified ? "" : " unverified"), e.title);
+    const where = e.lat == null ? " · no map position" : "";
+    const meta = el("small", "", `${regionName(e.hotspot)} · ${CATEGORIES[e.category][1]} · ${ago(e.ts)}${where} · `);
+    e.sources.forEach((s, i) => {
+      const a = el("a", "", s.name);
+      if (/^https?:\/\//.test(s.url)) { a.href = s.url; a.target = "_blank"; a.rel = "noopener noreferrer"; }
+      meta.append(i ? ", " : "", a);
+    });
+    row.append(meta);
+    $("events").append(row);
+    if (e.lat == null) return;
+
+    const n = stacked[e.lat + "," + e.lon] = (stacked[e.lat + "," + e.lon] || 0) + 1;
+    // region-centre dots start outside the hotspot circle so they are not hidden under it
+    const r = e.exact ? 0.3 * Math.sqrt(n - 1) : 1.5 * Math.sqrt(n);
+    const pos = [e.lat + r * Math.cos(n * 2.4), e.lon + r * Math.sin(n * 2.4)];
+    const popup = row.cloneNode(true);
+    popup.className = "event popup";
+    popup.style.color = "#111";
+    if (!e.exact) popup.append(el("small", "", "Position approximate (region centre)"));
+    const marker = L.circleMarker(pos, { radius: 5, weight: 2, color: CATEGORIES[e.category][0],
+      fillOpacity: e.verified ? .9 : .15, dashArray: e.verified ? null : "3" }).bindPopup(popup).addTo(eventMarkers);
+    row.style.cursor = "pointer";
+    row.onclick = ev => { if (ev.target.tagName !== "A") { map.setView(pos, Math.max(map.getZoom(), 5)); marker.openPopup(); } };
+  });
+  if (!events.length) {
+    // Tell the user when the search does match something that another filter is hiding.
+    const q = $("q").value.trim().toLowerCase();
+    const hidden = q ? data.events.filter(e => e.title.toLowerCase().includes(q)).length : 0;
+    $("events").append(el("div", "event", hidden
+      ? `No visible events, but ${hidden} match "${q}" and are hidden by the other filters (category, region, period or unverified). Try Reset filters.`
+      : "No matching events."));
+  }
+}
+
+// Jump to an event: centre the map on it and show it in the list via the search box.
+function focusEvent(e) {
+  if (e.lat != null) map.setView([e.lat, e.lon], 6);
+  $("q").value = e.title;
+  render();
+}
+
+// News banner under the header: the same important events, scrolling. Hover pauses it.
+let tickerKeys = null;
+function renderTicker(events) {
+  const keys = events.map(e => e.sources[0].url).join("|");
+  if (keys === tickerKeys) return;  // unchanged: keep scrolling without a jump
+  tickerKeys = keys;
+  const track = $("tickerTrack");
+  track.replaceChildren();
+  track.style.animation = events.length ? "" : "none";
+  track.style.animationDuration = events.length * 10 + "s";
+  if (!events.length) track.append(el("span", "tick", "No important events in the last 6 hours."));
+  for (let copy = 0; copy < 2; copy++) {  // two copies, so the loop wraps around seamlessly
+    events.forEach(e => {
+      const item = el("span", "tick");
+      const dot = el("i", "dot");
+      dot.style.background = CATEGORIES[e.category][0];
+      const when = new Date(e.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      item.append(dot, el("time", "", when), e.title, el("small", "", regionName(e.hotspot)));
+      item.onclick = () => focusEvent(e);
+      track.append(item);
+    });
+  }
+}
+
+// Live ticker: verified events and ones with severe keywords, newest first. Ignores the filters.
+const shownLive = new Set();
+function renderLive() {
+  const firstRender = !shownLive.size;
+  $("live").replaceChildren();
+  const recent = data.events.filter(e => e.important && e.ts > Date.now() / 1000 - 6 * 3600).slice(0, 12);
+  renderTicker(recent);
+  recent.forEach(e => {
+    const key = e.sources[0].url;
+    const row = el("div", "live" + (firstRender || shownLive.has(key) ? "" : " fresh"));  // new since last refresh
+    shownLive.add(key);
+    const dot = el("i", "dot");
+    dot.style.cssText = `background:${CATEGORIES[e.category][0]};margin-top:6px`;
+    const when = new Date(e.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    row.append(el("time", "", when), dot, el("span", "", `${e.title} (${e.verified ? e.sources.length + " sources" : e.sources[0].name + " only"})`));
+    row.title = regionName(e.hotspot);
+    row.onclick = () => focusEvent(e);
+    $("live").append(row);
+  });
+  if (!recent.length) $("live").append(el("div", "live", "Nothing important in the last 6 hours."));
+}
+
+// ---------- status strip ----------
+
+// The baseline is the state at the end of the previous visit. It stays fixed while this tab is open,
+// so the line keeps answering "what happened while I was away" until the user marks it as seen.
+const SNAPSHOT_KEY = "geowatch_snapshot";
+let baseline;  // undefined = not read yet, null = no previous visit
+function snapshot() {
+  return { ts: data.updated, events: data.events.map(e => e.sources[0].url),
+           levels: Object.fromEntries(data.hotspots.map(h => [h.id, h.level])) };
+}
+function saveSnapshot() {
+  try { localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot())); } catch { /* storage unavailable */ }
+}
+
+function renderChanges() {
+  if (baseline === undefined) {
+    try { baseline = JSON.parse(localStorage.getItem(SNAPSHOT_KEY)); } catch { baseline = null; }
+  }
+  const box = $("changes");
+  box.replaceChildren();
+  if (!baseline) {
+    box.append("First visit: changes will be tracked from now on.");
+  } else {
+    const seen = new Set(baseline.events);
+    const fresh = data.events.filter(e => !seen.has(e.sources[0].url));
+    const verified = fresh.filter(e => e.verified).length;
+    const shifts = data.hotspots.filter(h => baseline.levels[h.id] && baseline.levels[h.id] !== h.level)
+      .map(h => `${h.name}: ${baseline.levels[h.id]} → ${h.level}`);
+    const parts = [`${fresh.length} new events, ${verified} verified`, ...shifts];
+    box.append(`Since your last visit (${ago(baseline.ts)}): `);
+    box.append(el("b", fresh.length || shifts.length ? "warn" : "", parts.join(" · ")));
+    const seenBtn = el("button", "", "Mark as seen");
+    seenBtn.onclick = () => { saveSnapshot(); baseline = snapshot(); render(); };
+    box.append(seenBtn);
+  }
+  saveSnapshot();  // the next visit compares against the latest state seen here
+}
+
+function renderHealth() {
+  const h = data.health, box = $("health");
+  box.replaceChildren();
+  if (!h) return;  // data from an older scanner version
+  const minutes = (Date.now() / 1000 - data.updated) / 60;
+  const stale = minutes > 3 * h.scan_interval_minutes;
+  const ok = h.feeds_total - h.feeds_failed;
+  const merging = { on: ["ok", "on"], off: ["", "off"], failed: ["bad", "failed, using word matching"] }[h.embedding];
+  box.append(
+    el("span", stale ? "bad" : "", stale ? `Last scan ${ago(data.updated)}, scanner may be down` : `Last scan ${ago(data.updated)}`), " · ",
+    el("span", h.feeds_failed ? "warn" : "ok", `${ok}/${h.feeds_total} feeds OK`), " · Event merging: ",
+    el("span", merging[0], merging[1]));
+  box.title = data.errors.join("\n");
+}
+
+function render() {
+  if (!data) return;
+  renderChanges();
+  renderHealth();
+  $("updated").textContent = "updated " + ago(data.updated);
+  $("errors").textContent = data.errors.length ? data.errors.length + " source(s) failing" : "";
+  $("errors").title = data.errors.join("\n");
+  fillRegions();
+  renderLive();
+  renderDetail();
+  renderPots();
+  renderEvents();
+}
+
+// ---------- alerts ----------
+
+// A toast in the page, plus a desktop notification once the user has enabled them.
+function alertUser(title, body) {
+  const t = el("div", "toast");
+  t.append(el("b", "", title), body);
+  t.onclick = () => t.remove();
+  $("toasts").append(t);
+  setTimeout(() => t.remove(), 60000);
+  if (window.Notification && Notification.permission === "granted") new Notification("Geowatch: " + title, { body, tag: "geowatch" });  // same tag = replaces the previous one, no pile-up
+}
+
+// Alert on verified events and boiling hotspots not seen on the previous load (state kept in this browser).
+function checkAlerts() {
+  let seen = null;
+  try { seen = JSON.parse(localStorage.getItem("geowatch_seen")); } catch { /* storage unavailable */ }
+  const now = [
+    ...data.events.filter(e => e.important).map(e => [e.sources[0].url, `${regionName(e.hotspot)}: ${CATEGORIES[e.category][1]}`, e.title]),
+    ...data.hotspots.filter(h => h.level === "boiling").map(h => ["boiling:" + h.id, "Boiling pot", `${h.name}: ${h.n24} verified events in 24h`]),
+  ];
+  const fresh = seen ? now.filter(a => !seen.includes(a[0])) : [];  // first visit: no flood
+  if (fresh.length > 3) alertUser(`${fresh.length} new important events`, "See the Live list in the side panel.");
+  else fresh.forEach(a => alertUser(a[1], a[2]));
+  try { localStorage.setItem("geowatch_seen", JSON.stringify(now.map(a => a[0]))); } catch { /* ignore */ }
+}
+
+function showAlertState() {
+  if (!window.Notification) $("alertBtn").hidden = true;
+  else if (Notification.permission === "granted") { $("alertBtn").textContent = "Desktop alerts on"; $("alertBtn").disabled = true; }
+}
+$("alertBtn").onclick = () => Notification.requestPermission().then(showAlertState);
+showAlertState();
+
+// ---------- loading ----------
+
+async function load() {
+  try {
+    data = await (await fetch("data.json", { cache: "no-store" })).json();
+    render();
+    checkAlerts();
+  } catch (err) {
+    console.error(err);
+    $("updated").textContent = "no data yet (first scan running?)";
+  }
+  try {
+    const layers = await (await fetch("frontlines.json", { cache: "no-store" })).json();
+    frontlines.clearLayers();
+    layers.forEach(l => L.geoJSON(l.geojson, {
+      // DeepState also ships areas liberated in 2022; they are history, not the current front
+      filter: f => !/Liberated/.test(f.properties.name || ""),
+      style: f => ({ color: f.properties.fill || "#e5484d", weight: 1, fillOpacity: .3 }),
+      onEachFeature: (f, layer) => {
+        const status = ((f.properties.name || "").split("///")[1] || "Territory").trim();
+        layer.bindTooltip(el("span", "", `${status} · ${l.name}, updated ${ago(l.updated)}`), { sticky: true });
+      },
+    }).addTo(frontlines));
+  } catch { /* frontline layer is optional */ }
+}
+$("filters").addEventListener("input", render);
+$("filters").addEventListener("change", render);
+$("reset").onclick = () => {
+  document.querySelectorAll("#cats input").forEach(i => i.checked = true);
+  $("region").value = "";
+  $("hours").value = "72";
+  $("showUnverified").checked = true;
+  $("importantOnly").checked = false;
+  $("searchAll").checked = true;
+  $("q").value = "";
+  render();
+};
+load();
+setInterval(load, 60 * 1000);  // the scanner writes new data every few minutes
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+data/
+__pycache__/
+web/data.json
+web/frontlines.json
+config.local.json
+*.bak
+patch_embed.py
+Claude outputs/

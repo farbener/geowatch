@@ -1,0 +1,9 @@
+services:
+  geowatch:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data                    # SQLite history survives rebuilds
+      - ./config.json:/app/config.json:ro   # edit sources without rebuilding

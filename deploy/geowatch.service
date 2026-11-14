@@ -1,0 +1,13 @@
+[Unit]
+Description=Geowatch
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+User=geowatch
+WorkingDirectory=/opt/geowatch
+ExecStart=/usr/bin/python3 /opt/geowatch/watcher.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
