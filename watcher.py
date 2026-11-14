@@ -230,7 +230,11 @@ POLITICS_RE = word_re(CFG.get("politics_keywords", []))
 POLITICS_PLACES_RE = word_re(CFG.get("politics_countries", []))
 POLITICS_EXCLUDE_RE = word_re(CFG.get("politics_exclude", []))
 BIAS = CFG.get("source_bias", {})
-LOCAL_POLITICS = {f["name"] for f in CFG["feeds"] if f.get("local_politics")}  # national outlets: all politics counts
+LOCAL_POLITICS = {f["name"] for f in CFG["feeds"] if f.get("local_politics")}
+STATUS_PAGES = {f["name"] for f in CFG["feeds"] if f.get("status_page")}  # provider status pages: every entry is an outage
+OUTAGE_RE = word_re(CFG.get("outage_keywords", []))
+STATUS_SKIP_RE = word_re(CFG.get("status_page_skip", []))
+PROVIDER_RE = word_re(CFG.get("outage_providers", []))  # national outlets: all politics counts
 VOTES = CFG.get("vote_results", {})
 VOTE_CONTEXT_RE, VOTE_RESULT_RE, VOTE_PROJECTION_RE = (word_re(VOTES.get(k, [])) for k in ("context", "result", "projection"))
 PLACE_RE = [(tuple(pos), keyword_re([name])) for name, pos in CFG.get("places", {}).items()]
@@ -243,13 +247,18 @@ def first_match(patterns, text):
 
 def classify(title, source=None):
     """Return (hotspot, category); (None, None) means the item is not relevant."""
+    if source in STATUS_PAGES:
+        return (None, None) if STATUS_SKIP_RE.search(title) else ("world", "outage")
     hotspot = first_match(HOTSPOT_RE, title)
     incident = "incident" if INCIDENT_RE.search(title) else None
+    outage = "outage" if OUTAGE_RE.search(title) else None
     politics = "politics" if POLITICS_RE.search(title) and not POLITICS_EXCLUDE_RE.search(title) else None
     if hotspot:
-        return hotspot, first_match(CATEGORY_RE, title) or incident or politics
+        return hotspot, first_match(CATEGORY_RE, title) or incident or outage or politics
     if incident:
         return "world", incident    # security incidents anywhere in the world
+    if outage:
+        return "world", outage      # major IT, power and internet outages
     if MILITARY_RE.search(title) and MOVEMENT_RE.search(title):
         return "world", "movement"  # military movements outside the watched regions
     if politics and (source in LOCAL_POLITICS or POLITICS_PLACES_RE.search(title)):
@@ -468,9 +477,15 @@ def send_alerts(con, events, now):
     """Push via ntfy only what concerns the user's own zones (home, travel), like a personal Alertswiss."""
     settings = local_settings()
     topic, zones = settings.get("ntfy_url"), active_zones(settings)
-    if not topic or not zones:
+    if not topic:
         return
     alerts = []  # (dedupe key, title, body, link, priority)
+    if CFG.get("outage_push"):
+        for e in events:  # confirmed outages at providers that matter to the user (cloud, M365, telcos)
+            if e["category"] == "outage" and e["verified"] and not e["feature"] and e["ts"] > now - 6 * HOUR \
+                    and any(PROVIDER_RE.search(s["title"]) for s in e["sources"]):
+                alerts.append((f"outage|{e['sources'][0]['url']}", "Outage",
+                               f"{e['title']} ({', '.join(x['name'] for x in e['sources'])})", e["sources"][0]["url"], 4))
     for e in events:
         if e["category"] in ("diplomacy", "politics") or e["feature"] or e["ts"] < now - 6 * HOUR:
             continue

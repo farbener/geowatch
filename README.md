@@ -140,3 +140,11 @@ Phrases match whole words only.
   Needs a result wording (lehnt ab, sagt Ja, rejected, ...) and no projection wording (Hochrechnung, Trend, gfs, ...),
   from a Swiss outlet or 2+ independent outlets. One push per proposal, at most `max_per_day` per day.
   Federal Council, cantonal and municipal elections are excluded via `politics_exclude`.
+
+## Outages
+
+- **Outage** category: official status pages (Azure, AWS, Google Cloud, Cloudflare, GitHub; `"status_page": true`)
+  plus news headlines matching `outage_keywords` (outages, blackouts, internet shutdowns). Maintenance and
+  resolved notices from status pages are skipped (`status_page_skip`).
+- **Push:** an outage confirmed by 2+ independent sources that names a provider from `outage_providers`
+  (Microsoft 365, Azure, AWS, Cloudflare, Swisscom, ...) is pushed once, independent of your zones (`outage_push`).

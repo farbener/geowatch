@@ -154,7 +154,12 @@
     "sunk",
     "declares war",
     "ceasefire",
-    "evacuat"
+    "evacuat",
+    "global outage",
+    "worldwide outage",
+    "major outage",
+    "widespread outage",
+    "nationwide outage"
   ],
   "feature_phrases": [
     "one year on",
@@ -1180,6 +1185,31 @@
     {
       "name": "Washington Examiner",
       "url": "https://www.washingtonexaminer.com/feed/"
+    },
+    {
+      "name": "Azure Status",
+      "url": "https://azure.status.microsoft/en-us/status/feed/",
+      "status_page": true
+    },
+    {
+      "name": "AWS Health",
+      "url": "https://status.aws.amazon.com/rss/all.rss",
+      "status_page": true
+    },
+    {
+      "name": "Google Cloud Status",
+      "url": "https://status.cloud.google.com/en/feed.atom",
+      "status_page": true
+    },
+    {
+      "name": "Cloudflare Status",
+      "url": "https://www.cloudflarestatus.com/history.atom",
+      "status_page": true
+    },
+    {
+      "name": "GitHub Status",
+      "url": "https://www.githubstatus.com/history.atom",
+      "status_page": true
     }
   ],
   "gdelt_enabled": false,
@@ -1557,5 +1587,50 @@
       "likely",
       "could"
     ]
-  }
+  },
+  "outage_keywords": [
+    "outage",
+    "outages",
+    "service disruption",
+    "services disrupted",
+    "network disruption",
+    "blackout",
+    "blackouts",
+    "power cut",
+    "power cuts",
+    "internet shutdown",
+    "connectivity issues",
+    "it meltdown",
+    "global it",
+    "störung",
+    "stromausfall"
+  ],
+  "status_page_skip": [
+    "scheduled maintenance",
+    "maintenance",
+    "planned",
+    "resolved"
+  ],
+  "outage_providers": [
+    "microsoft",
+    "azure",
+    "outlook",
+    "teams",
+    "office 365",
+    "microsoft 365",
+    "m365",
+    "exchange online",
+    "aws",
+    "amazon web services",
+    "google cloud",
+    "gmail",
+    "cloudflare",
+    "crowdstrike",
+    "github",
+    "swisscom",
+    "sunrise",
+    "salt mobile",
+    "starlink"
+  ],
+  "outage_push": true
 }
