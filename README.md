@@ -143,7 +143,7 @@ Phrases match whole words only.
 
 ## Outages
 
-- **Outage** category: official status pages (Azure, AWS, Google Cloud, Cloudflare, GitHub; `"status_page": true`)
+- **Outage** category: official status pages (Microsoft 365, Azure, AWS, Google Cloud, Cloudflare, GitHub; `"status_page": true`)
   plus news headlines matching `outage_keywords` (outages, blackouts, internet shutdowns). Maintenance and
   resolved notices from status pages are skipped (`status_page_skip`).
 - **Push:** an outage confirmed by 2+ independent sources that names a provider from `outage_providers`

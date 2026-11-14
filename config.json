@@ -1187,8 +1187,13 @@
       "url": "https://www.washingtonexaminer.com/feed/"
     },
     {
+      "name": "Microsoft 365 Status",
+      "url": "https://status.cloud.microsoft/api/feed/mac",
+      "status_page": true
+    },
+    {
       "name": "Azure Status",
-      "url": "https://azure.status.microsoft/en-us/status/feed/",
+      "url": "https://rssfeed.azure.status.microsoft/en-us/status/feed/",
       "status_page": true
     },
     {
