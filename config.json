@@ -53,22 +53,22 @@
       "symbols": [
         {
           "name": "Brent oil",
-          "symbol": "cb.f",
+          "symbol": "BZ=F",
           "alert_pct": 3
         },
         {
-          "name": "US gas",
-          "symbol": "ng.f",
+          "name": "EU gas (TTF)",
+          "symbol": "TTF=F",
           "alert_pct": 6
         },
         {
           "name": "Gold",
-          "symbol": "xauusd",
+          "symbol": "GC=F",
           "alert_pct": 2
         },
         {
           "name": "USD/CHF",
-          "symbol": "usdchf",
+          "symbol": "CHF=X",
           "alert_pct": 1
         }
       ]

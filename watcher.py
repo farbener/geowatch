@@ -140,6 +140,7 @@ SIGNAL_REFRESH = 30 * 60  # sources update every few hours at most; no need to p
 last_signals = 0
 latest_quakes = []  # used by the personal zone alerts
 latest_net_outages = []
+signal_errors = []  # errors of the last signal refresh, shown on every scan until the next one
 
 
 def fetch_earthquakes():
@@ -197,18 +198,17 @@ def fetch_internet_outages():
 
 
 def fetch_markets():
-    """Daily closes from Stooq (free CSV, no key); change versus the previous close."""
-    d1 = datetime.fromtimestamp(time.time() - 14 * DAY).strftime("%Y%m%d")
-    d2 = datetime.now().strftime("%Y%m%d")
+    """Daily closes from Yahoo Finance's public chart data (no key); change versus the previous close."""
     out = []
     for m in SIGNALS["markets"]["symbols"]:
-        text = fetch(f"https://stooq.com/q/d/l/?s={m['symbol']}&i=d&d1={d1}&d2={d2}").decode("utf-8", "replace")
-        rows = [r for r in csv.DictReader(io.StringIO(text)) if r.get("Close")]
-        if len(rows) < 2:
-            raise ValueError(f"{m['name']}: no data ({text.strip()[:40]})")
-        last, prev = float(rows[-1]["Close"]), float(rows[-2]["Close"])
-        out.append({"name": m["name"], "price": last, "change_pct": round((last / prev - 1) * 100, 2),
-                    "date": rows[-1]["Date"], "alert_pct": m["alert_pct"]})
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(m['symbol'])}?range=10d&interval=1d"
+        result = json.loads(fetch(url))["chart"]["result"][0]
+        days = [(t, c) for t, c in zip(result["timestamp"], result["indicators"]["quote"][0]["close"]) if c is not None]
+        if len(days) < 2:
+            raise ValueError(f"{m['name']}: not enough data")
+        (_, prev), (ts, last) = days[-2], days[-1]
+        out.append({"name": m["name"], "price": round(last, 2), "change_pct": round((last / prev - 1) * 100, 2),
+                    "date": datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d"), "alert_pct": m["alert_pct"]})
     return out
 
 
@@ -216,8 +216,10 @@ def update_signals(errors):
     """Write web/signals.json with the non-news layers. Each source fails on its own."""
     global last_signals
     if time.time() - last_signals < SIGNAL_REFRESH:
+        errors.extend(signal_errors)
         return
     last_signals = time.time()
+    first = len(errors)
     out = {"updated": int(time.time()), "earthquakes": [], "fires": [], "fires_status": "off",
            "internet_outages": [], "internet_status": "off", "markets": []}
     net = SIGNALS.get("internet_outages", {})
@@ -255,6 +257,7 @@ def update_signals(errors):
     (WEB / "signals.json").write_text(json.dumps(out))
     latest_quakes[:] = out["earthquakes"]
     latest_net_outages[:] = out["internet_outages"]
+    signal_errors[:] = errors[first:]
 
 
 def update_frontlines():
