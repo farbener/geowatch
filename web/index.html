@@ -69,6 +69,7 @@
   .boiling { background:var(--boiling); } .rising { background:var(--rising); } .stable { background:var(--stable); }
   .event small { color:var(--dim); display:block; margin-top:2px; }
   .event.unverified { opacity:.55; }
+  .event.new { border-left:3px solid var(--rising); padding-left:11px; }
   .event.popup { padding:0; border:0; font-size:13px; }
   .event.popup small { color:#555; margin-top:4px; }
   a { color:#7fb4ff; text-decoration:none; } a:hover { text-decoration:underline; }
@@ -303,12 +304,13 @@ function renderPots() {
 
 function renderEvents() {
   const events = visibleEvents();
-  $("eventsTitle").textContent = `${onlyNew ? "New events" : "Events"} (${events.length})`;
+  $("eventsTitle").textContent = onlyNew ? `New since your last visit (${events.length}), click "Show all" to leave`
+                                         : `Events (${events.length})`;
   $("events").replaceChildren();
   eventMarkers.clearLayers();
   const stacked = {};  // events sharing a position are spread in a spiral so all stay clickable
   events.forEach(e => {
-    const row = el("div", "event" + (e.verified ? "" : " unverified"), e.title);
+    const row = el("div", "event" + (e.verified ? "" : " unverified") + (baseline && isNew(e) ? " new" : ""), e.title);
     const where = (e.lat == null ? " · no map position" : "") + (e.feature ? " · background story" : "");
     const meta = el("small", "", `${regionName(e.hotspot)} · ${CATEGORIES[e.category][1]} · ${ago(e.ts)}${where} · `);
     e.sources.forEach((s, i) => {
@@ -482,12 +484,19 @@ function renderChanges() {
     box.append(`Since your last visit (${ago(baseline.ts)}): `);
     box.append(el("b", fresh.length || shifts.length ? "warn" : "", parts.join(" · ")));
     const newBtn = el("button", "", onlyNew ? "Show all" : "View new");
-    newBtn.onclick = () => { onlyNew = !onlyNew; render(); };
+    newBtn.onclick = () => { onlyNew = !onlyNew; render(); if (onlyNew) focusNew(); };
     const seenBtn = el("button", "", "Mark as seen");
     seenBtn.onclick = () => { onlyNew = false; saveSnapshot(); baseline = snapshot(); render(); };
     box.append(newBtn, seenBtn);
   }
   saveSnapshot();  // the next visit compares against the latest state seen here
+}
+
+// "View new": zoom the map to the new events and bring the (filtered) list into view.
+function focusNew() {
+  const placed = visibleEvents().filter(e => e.lat != null);
+  if (placed.length) map.fitBounds(L.latLngBounds(placed.map(e => [e.lat, e.lon])).pad(0.3), { maxZoom: 6 });
+  $("eventsTitle").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderHealth() {
