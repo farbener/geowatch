@@ -1178,10 +1178,6 @@
       "url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml"
     },
     {
-      "name": "Telegraph",
-      "url": "https://www.telegraph.co.uk/news/world/rss.xml"
-    },
-    {
       "name": "Washington Examiner",
       "url": "https://www.washingtonexaminer.com/feed/"
     }
