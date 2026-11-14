@@ -94,6 +94,13 @@ def parse_feed(xml_bytes):
         url = (link.text or link.get("href") or "").strip() if link is not None else ""
         date = item.findtext("pubDate") or item.findtext("published") or item.findtext("updated") or item.findtext("date")
         title = clean(item.findtext("title"))
+        status = (item.findtext("status") or "").strip()
+        if status:  # Microsoft status feeds: one standing item, "Available" means no incident
+            if status.lower() == "available":
+                continue
+            # the link never changes, so make each incident unique and readable
+            url = f"{url}#{item.findtext('guid') or ''}-{status}"
+            title = f"{title}: {status}. {clean(item.findtext('description'))[:160]}"
         if title and url.startswith("http"):
             yield title, url, parse_date(date)
 
