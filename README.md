@@ -102,3 +102,9 @@ The in-page alerts (toasts, desktop notifications) are unchanged and still cover
 Zones can also be managed in the web page ("My alert zones"). Create the token once on the server with
 `python3 /opt/geowatch/zones.py token`; the page asks for it on first use and remembers it in that browser.
 The ntfy topic can only be changed on the server.
+
+## Background stories
+
+Headlines matching `feature_phrases` (anniversaries, interviews, history pieces, analysis, ...) stay in the
+event list, marked "background story", but are never treated as important: no Live list, no banner, no alerts.
+Phrases match whole words only.

@@ -15,6 +15,9 @@
   "severe_keywords": ["bomb", "explosi", "blast", "killed", "dead", "massacre", "terror", "assassinat", "hostage",
     "invasion", "invade", "missile", "airstrike", "air strike", "nuclear", "coup", "martial law", "state of emergency",
     "blockade", "mobiliz", "mobilis", "shot down", "sinks", "sunk", "declares war", "ceasefire", "evacuat"],
+  "feature_phrases": ["one year on", "years on", "year on", "anniversary", "history of", "in time", "star", "actor",
+    "actress", "documentary", "film", "films", "movie", "book", "books", "novel", "analysis", "opinion", "explainer",
+    "what we know", "podcast", "obituary", "interview", "in pictures", "remembering", "remembers", "quiz", "recipe"],
   "military_context": ["troop", "military", "army", "navy", "naval", "warship", "air force", "soldier", "marines", "nato",
     "fighter jet", "aircraft carrier", "battalion", "brigade", "bomber", "submarine", "national guard", "pentagon"],
   "places": {

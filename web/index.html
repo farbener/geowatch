@@ -244,7 +244,7 @@ function renderEvents() {
   const stacked = {};  // events sharing a position are spread in a spiral so all stay clickable
   events.forEach(e => {
     const row = el("div", "event" + (e.verified ? "" : " unverified"), e.title);
-    const where = e.lat == null ? " · no map position" : "";
+    const where = (e.lat == null ? " · no map position" : "") + (e.feature ? " · background story" : "");
     const meta = el("small", "", `${regionName(e.hotspot)} · ${CATEGORIES[e.category][1]} · ${ago(e.ts)}${where} · `);
     e.sources.forEach((s, i) => {
       const a = el("a", "", s.name);

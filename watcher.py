@@ -215,6 +215,8 @@ CATEGORY_RE = [(name, keyword_re(words)) for name, words in CFG["categories"].it
 INCIDENT_RE = keyword_re(CFG["incident_keywords"])
 MILITARY_RE = keyword_re(CFG["military_context"])
 SEVERE_RE = keyword_re(CFG["severe_keywords"])
+# Whole-word match (unlike the keyword lists), so "star" does not hit "start" or "Starmer".
+FEATURE_RE = re.compile(r"\b(" + "|".join(map(re.escape, CFG.get("feature_phrases", []))) + r")\b", re.I)
 MOVEMENT_RE = dict(CATEGORY_RE)["movement"]
 PLACE_RE = [(tuple(pos), keyword_re([name])) for name, pos in CFG.get("places", {}).items()]
 HOTSPOT_POS = {h["id"]: (h["lat"], h["lon"]) for h in CFG["hotspots"]}
@@ -331,10 +333,13 @@ def heat(clusters, hotspot_id, now):
 def to_event(c):
     """Map position: a known place named in the title, otherwise the hotspot centre."""
     place = first_match(PLACE_RE, c["title"])
+    is_feature = bool(CFG.get("feature_phrases")) and bool(FEATURE_RE.search(c["title"]))
     lat, lon = place or HOTSPOT_POS.get(c["hotspot"], (None, None))  # worldwide events may have no position
     return {"title": c["title"], "hotspot": c["hotspot"], "category": c["category"], "ts": c["ts"],
             "verified": c["verified"],
-            "important": c["verified"] or bool(SEVERE_RE.search(c["title"])),  # shown in the live ticker
+            # important = shown in Live list and banner, alerts in the page; features/anniversaries never are
+            "important": not is_feature and (c["verified"] or bool(SEVERE_RE.search(c["title"]))),
+            "feature": is_feature,
             "lat": lat, "lon": lon, "exact": bool(place),
             "sources": [{"name": n, "url": u} for n, u in c["sources"].items()]}
 
@@ -385,7 +390,7 @@ def send_alerts(con, events, now):
         return
     alerts = []  # (dedupe key, title, body, link, priority)
     for e in events:
-        if e["category"] == "diplomacy" or e["ts"] < now - 6 * HOUR:
+        if e["category"] == "diplomacy" or e["feature"] or e["ts"] < now - 6 * HOUR:
             continue
         for z in zones:
             if zone_matches(z, e["title"], e["lat"], e["lon"], e["exact"]):
