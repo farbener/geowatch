@@ -226,7 +226,7 @@ function renderDetail() {
   const h = data.hotspots.find(h => h.id === $("region").value);
   if (!h) {
     box.append(el("h2", "", "How to read this map"));
-    ["Large circles are watched regions. Green = normal activity, orange = above normal, red = boiling (3+ verified events in 24h and at least double the usual level).",
+    ["Large circles are watched regions. Green = normal activity, orange = rising (2+ verified events in 24h and above the usual level), red = boiling (3+ and at least double the usual level).",
      "Small dots are single events, coloured by type as in the filters above. Solid = confirmed by 2+ independent sources, dashed = one source only.",
      "Security incidents and military movements are collected worldwide, not only in watched regions. Those without a known place appear in the list only.",
      "Shaded areas in Ukraine: red and dark red = Russian-held, grey = status unknown (contested). Hover for the status.",
@@ -287,8 +287,8 @@ function whyLevel(h) {
   box.style.margin = "4px 14px 8px";
   const rule = {
     boiling: `Boiling: ${h.n24} verified events in 24h, at least 3 and at least double the usual ${h.base} per day.`,
-    rising: `Rising: ${h.n24} verified event(s) in 24h, more than the usual ${h.base} per day (average of the 6 days before).`,
-    stable: `Stable: ${h.n24} verified event(s) in 24h, not more than the usual ${h.base} per day.`,
+    rising: `Rising: ${h.n24} verified events in 24h, at least 2 and more than the usual ${h.base} per day (average of the 6 days before).`,
+    stable: `Stable: ${h.n24} verified event(s) in 24h; rising needs at least 2 and more than the usual ${h.base} per day.`,
   }[h.level];
   box.append(el("b", "", `Why ${h.level}`), el("p", "", rule));
   if (h.n24 <= 2 && h.level !== "stable")

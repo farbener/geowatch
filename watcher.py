@@ -358,7 +358,8 @@ def heat(clusters, hotspot_id, now):
     recent = sorted((c for c in verified if c["first_ts"] > now - DAY), key=lambda c: -c["first_ts"])
     n24 = len(recent)
     base = sum(now - 7 * DAY < c["first_ts"] <= now - DAY for c in verified) / 6
-    level = "boiling" if n24 >= 3 and n24 >= 2 * base else "rising" if n24 > base else "stable"
+    # rising needs at least 2 events, so a single story cannot flip a quiet region
+    level = "boiling" if n24 >= 3 and n24 >= 2 * base else "rising" if n24 >= 2 and n24 > base else "stable"
     # the events behind the level, so the page can explain a change
     drivers = [{"title": c["title"], "url": next(iter(c["sources"].values())), "outlets": len(c["sources"]),
                 "category": c["category"], "ts": c["first_ts"]} for c in recent[:6]]
