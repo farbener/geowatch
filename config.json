@@ -468,6 +468,21 @@
       "bias": "left-center",
       "rater": "MBFC",
       "url": "https://mediabiasfactcheck.com/srf-schweizer-radio-und-fernsehen-bias/"
+    },
+    "WSJ": {
+      "bias": "center",
+      "rater": "AllSides (older snapshot, news section)",
+      "url": "https://www.allsides.com/news-source/wall-street-journal-media-bias"
+    },
+    "Telegraph": {
+      "bias": "right-center",
+      "rater": "AllSides (older snapshot)",
+      "url": "https://www.allsides.com/news-source/telegraph-uk"
+    },
+    "Washington Examiner": {
+      "bias": "right-center",
+      "rater": "AllSides (older snapshot)",
+      "url": "https://www.allsides.com/news-source/washington-examiner"
     }
   },
   "military_context": [
@@ -1157,6 +1172,18 @@
       "name": "20 Minuten",
       "url": "https://partner-feeds.20min.ch/rss/20minuten/schweiz",
       "local_politics": true
+    },
+    {
+      "name": "WSJ",
+      "url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml"
+    },
+    {
+      "name": "Telegraph",
+      "url": "https://www.telegraph.co.uk/news/world/rss.xml"
+    },
+    {
+      "name": "Washington Examiner",
+      "url": "https://www.washingtonexaminer.com/feed/"
     }
   ],
   "gdelt_enabled": false,
