@@ -128,6 +128,7 @@ def in_bbox(geometry, bbox):
 SIGNALS = CFG.get("signals", {})
 SIGNAL_REFRESH = 30 * 60  # sources update every few hours at most; no need to poll every scan
 last_signals = 0
+latest_quakes = []  # used by the personal zone alerts
 
 
 def fetch_earthquakes():
@@ -187,6 +188,7 @@ def update_signals(errors):
                 out["fires_status"] = "failed"
                 errors.append(f"Fires: {e}")
     (WEB / "signals.json").write_text(json.dumps(out))
+    latest_quakes[:] = out["earthquakes"]
 
 
 def update_frontlines():
@@ -335,21 +337,69 @@ def to_event(c):
             "sources": [{"name": n, "url": u} for n, u in c["sources"].items()]}
 
 
-def send_alerts(con, events, hotspots, now):
-    """Optional push via ntfy: new verified events and hotspots that turn boiling. Each is sent once."""
-    if not CFG.get("ntfy_url"):
+def local_settings():
+    """Read config.local.json fresh on every scan, so zone and topic changes apply without a restart."""
+    try:
+        return json.loads(LOCAL_CFG.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def distance_km(lat1, lon1, lat2, lon2):
+    """Great-circle distance (haversine)."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+    return 12742 * math.asin(math.sqrt(a))
+
+
+def active_zones(settings):
+    today = datetime.now().strftime("%Y-%m-%d")
+    return [z for z in settings.get("alert_zones", []) if not z.get("until") or z["until"] >= today]
+
+
+def zone_matches(zone, title, lat, lon, exact):
+    """A headline that names the zone, or an exactly placed event/quake inside the radius."""
+    text = title.lower()
+    if any(k in text for k in zone.get("keywords", [])):
+        return True
+    return exact and lat is not None and distance_km(zone["lat"], zone["lon"], lat, lon) <= zone["radius_km"]
+
+
+def push(topic_url, title, message, link="", priority=3):
+    """Publish to ntfy as JSON, which (unlike HTTP headers) carries umlauts and other UTF-8 safely."""
+    base, topic = topic_url.rstrip("/").rsplit("/", 1)
+    body = {"topic": topic, "title": title, "message": message, "priority": priority, "tags": ["warning"]}
+    if link.startswith("http"):
+        body["click"] = link
+    req = urllib.request.Request(base + "/", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    urllib.request.urlopen(req, timeout=10).close()
+
+
+def send_alerts(con, events, now):
+    """Push via ntfy only what concerns the user's own zones (home, travel), like a personal Alertswiss."""
+    settings = local_settings()
+    topic, zones = settings.get("ntfy_url"), active_zones(settings)
+    if not topic or not zones:
         return
-    names = {h["id"]: h["name"] for h in hotspots}
-    alerts = [(e["sources"][0]["url"], f"{names.get(e['hotspot'], 'Worldwide')}: {e['category']}", e["title"])
-              for e in events if e["verified"] and e["ts"] > now - 6 * HOUR]
-    alerts += [(f"boiling:{h['id']}:{now // DAY}", "Boiling pot", f"{h['name']}: {h['n24']} verified events in 24h")
-               for h in hotspots if h["level"] == "boiling"]
+    alerts = []  # (dedupe key, title, body, link, priority)
+    for e in events:
+        if e["category"] == "diplomacy" or e["ts"] < now - 6 * HOUR:
+            continue
+        for z in zones:
+            if zone_matches(z, e["title"], e["lat"], e["lon"], e["exact"]):
+                note = f"{len(e['sources'])} sources" if e["verified"] else f"{e['sources'][0]['name']} only, unconfirmed"
+                alerts.append((f"{z['name']}|{e['sources'][0]['url']}", f"{z['name']}: {e['category']}",
+                               f"{e['title']} ({note})", e["sources"][0]["url"], 4 if e["important"] else 3))
+    for q in latest_quakes:
+        for z in zones:
+            if q["ts"] > now - 6 * HOUR and zone_matches(z, "", q["lat"], q["lon"], True):
+                alerts.append((f"{z['name']}|quake|{q['ts']}", f"{z['name']}: earthquake M{q['mag']}",
+                               f"{q['place']}, {q['depth']} km deep", q["url"], 4))
     con.execute("CREATE TABLE IF NOT EXISTS alerted (key TEXT PRIMARY KEY)")
-    for key, title, body in alerts:
+    for key, title, body, link, priority in alerts:
         if con.execute("INSERT OR IGNORE INTO alerted VALUES (?)", (key,)).rowcount:
             try:
-                req = urllib.request.Request(CFG["ntfy_url"], data=body.encode(), headers={"Title": title})
-                urllib.request.urlopen(req, timeout=10).close()
+                push(topic, title, body, link, priority)
             except Exception as e:
                 print("alert failed:", e, flush=True)
     con.commit()
@@ -385,7 +435,7 @@ def build(con, errors):
         "events": sorted(events, key=lambda e: -e["ts"]),
     }
     (WEB / "data.json").write_text(json.dumps(data))
-    send_alerts(con, data["events"], data["hotspots"], now)
+    send_alerts(con, data["events"], now)
     return data
 
 

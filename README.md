@@ -86,3 +86,15 @@ Setup: `ollama pull all-minilm`. Raise `min_similarity` if unrelated events merg
   `{"signals": {"fires": {"map_key": "<key>"}}}`. Fires are not proof of attacks: wildfires, farming and
   gas flares look the same. Iran and the Gulf are left out on purpose because of permanent gas flares.
 - Both refresh every 30 minutes and fail independently; errors show in the header.
+
+## Personal push alerts (zones)
+
+Push notifications via ntfy go out only for your own zones, like a personal Alertswiss:
+security incidents, combat and military movements whose headline names a zone keyword or whose exact
+position lies inside the zone radius, plus earthquakes M4.5+ inside the radius. Diplomacy and the rest of
+the world are never pushed. Each alert is sent once; unconfirmed single-source reports are labelled.
+
+Manage zones on the server (as root): `python3 /opt/geowatch/zones.py list|add|remove|topic|test`.
+Travel zones take `--until YYYY-MM-DD` and switch off by themselves. Changes apply at the next scan.
+Coordinates are looked up by name via OpenStreetMap Nominatim. Settings are stored in config.local.json.
+The in-page alerts (toasts, desktop notifications) are unchanged and still cover everything important.
