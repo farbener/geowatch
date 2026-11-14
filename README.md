@@ -131,3 +131,12 @@ Phrases match whole words only.
   The AllSides values come from an older community snapshot and are marked as such; MBFC values are from its
   dataset as of 14 Nov 2026. Ratings describe the outlet, not the article. Most feeds are centre to lean-left,
   so a missing right-leaning view is common and partly reflects the feed selection.
+
+## Swiss outlets and vote results
+
+- Swiss feeds (NZZ, SRF, Tages-Anzeiger, 20 Minuten, Blick, The Local) carry `"local_politics": true`: every vote or
+  referendum headline from them counts as Swiss politics. German keywords cover Abstimmungen and security incidents.
+- **Vote result push:** final results of Swiss popular votes are pushed to the phone (`vote_results` in config.json).
+  Needs a result wording (lehnt ab, sagt Ja, rejected, ...) and no projection wording (Hochrechnung, Trend, gfs, ...),
+  from a Swiss outlet or 2+ independent outlets. One push per proposal, at most `max_per_day` per day.
+  Federal Council, cantonal and municipal elections are excluded via `politics_exclude`.

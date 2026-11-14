@@ -230,6 +230,9 @@ POLITICS_RE = word_re(CFG.get("politics_keywords", []))
 POLITICS_PLACES_RE = word_re(CFG.get("politics_countries", []))
 POLITICS_EXCLUDE_RE = word_re(CFG.get("politics_exclude", []))
 BIAS = CFG.get("source_bias", {})
+LOCAL_POLITICS = {f["name"] for f in CFG["feeds"] if f.get("local_politics")}  # national outlets: all politics counts
+VOTES = CFG.get("vote_results", {})
+VOTE_CONTEXT_RE, VOTE_RESULT_RE, VOTE_PROJECTION_RE = (word_re(VOTES.get(k, [])) for k in ("context", "result", "projection"))
 PLACE_RE = [(tuple(pos), keyword_re([name])) for name, pos in CFG.get("places", {}).items()]
 HOTSPOT_POS = {h["id"]: (h["lat"], h["lon"]) for h in CFG["hotspots"]}
 
@@ -238,7 +241,7 @@ def first_match(patterns, text):
     return next((name for name, rx in patterns if rx.search(text)), None)
 
 
-def classify(title):
+def classify(title, source=None):
     """Return (hotspot, category); (None, None) means the item is not relevant."""
     hotspot = first_match(HOTSPOT_RE, title)
     incident = "incident" if INCIDENT_RE.search(title) else None
@@ -249,7 +252,7 @@ def classify(title):
         return "world", incident    # security incidents anywhere in the world
     if MILITARY_RE.search(title) and MOVEMENT_RE.search(title):
         return "world", "movement"  # military movements outside the watched regions
-    if politics and POLITICS_PLACES_RE.search(title):
+    if politics and (source in LOCAL_POLITICS or POLITICS_PLACES_RE.search(title)):
         return "world", "politics"  # elections and votes in the countries chosen in politics_countries
     return None, None
 
@@ -273,7 +276,7 @@ def store(con, items):
     """Keep only items that are both in a hotspot and military/diplomatic."""
     now = int(time.time())
     for source, title, url, ts in items:
-        hotspot, category = classify(title)
+        hotspot, category = classify(title, source)
         if hotspot and category and ts > now - KEEP_DAYS * DAY:
             con.execute("INSERT OR IGNORE INTO items VALUES (?,?,?,?,?,?)",
                         (url, source, title, min(ts, now), hotspot, category))
@@ -412,6 +415,50 @@ def push(topic_url, title, message, link="", priority=3):
     urllib.request.urlopen(req, timeout=10).close()
 
 
+def is_final_vote_result(e):
+    """Swiss referendum outcome: vote context + result verb, no projection wording.
+    Reported by a Swiss national outlet, or confirmed by 2+ independent outlets."""
+    local = any(s["name"] in LOCAL_POLITICS for s in e["sources"])
+    swiss = local or re.search(r"\b(swiss|switzerland)\b", e["title"], re.I)
+    return (e["category"] == "politics" and (local or e["verified"]) and not e["feature"] and swiss
+            and any(VOTE_CONTEXT_RE.search(s["title"]) for s in e["sources"])
+            and any(VOTE_RESULT_RE.search(s["title"]) for s in e["sources"])
+            and not any(VOTE_PROJECTION_RE.search(s["title"]) for s in e["sources"]))
+
+
+GENERIC_VOTE_WORDS = {"abstimmung", "abstimmungen", "abstimmungssonntag", "volksinitiative", "stimmvolk",
+                      "stimmbevölkerung", "angenommen", "abgelehnt", "referendum", "switzerland", "initiative"}
+
+
+def proposal_terms(title):
+    """Long words name the proposal ("autobahnausbau", "motorway"); used to skip repeat reports of one result."""
+    return {w for w in re.findall(r"[a-zäöüéèà]{8,}", title.lower()) if w not in GENERIC_VOTE_WORDS}
+
+
+def vote_result_alerts(con, events, now):
+    """Final results of Swiss popular votes, at most max_per_day pushes per day."""
+    if not VOTES.get("enabled"):
+        return []
+    con.execute("CREATE TABLE IF NOT EXISTS vote_alerts (day TEXT, key TEXT PRIMARY KEY, title TEXT)")
+    today = datetime.now().strftime("%Y-%m-%d")
+    sent = [proposal_terms(t) for (t,) in con.execute("SELECT title FROM vote_alerts WHERE day = ?", (today,))]
+    budget = VOTES.get("max_per_day", 6) - len(sent)
+    alerts = []
+    for e in sorted(events, key=lambda e: e["ts"]):
+        key = "vote|" + e["sources"][0]["url"]
+        if budget <= 0 or e["ts"] < now - 24 * HOUR or not is_final_vote_result(e):
+            continue
+        terms = proposal_terms(" ".join(s["title"] for s in e["sources"]))
+        if any(terms & earlier for earlier in sent):  # same proposal already pushed today
+            continue
+        if con.execute("INSERT OR IGNORE INTO vote_alerts VALUES (?,?,?)", (today, key, e["title"])).rowcount:
+            sent.append(terms)
+            budget -= 1
+            alerts.append((key, "Swiss vote: final result", f"{e['title']} ({', '.join(x['name'] for x in e['sources'])})",
+                           e["sources"][0]["url"], 3))
+    return alerts
+
+
 def send_alerts(con, events, now):
     """Push via ntfy only what concerns the user's own zones (home, travel), like a personal Alertswiss."""
     settings = local_settings()
@@ -427,6 +474,7 @@ def send_alerts(con, events, now):
                 note = f"{len(e['sources'])} sources" if e["verified"] else f"{e['sources'][0]['name']} only, unconfirmed"
                 alerts.append((f"{z['name']}|{e['sources'][0]['url']}", f"{z['name']}: {e['category']}",
                                f"{e['title']} ({note})", e["sources"][0]["url"], 4 if e["important"] else 3))
+    alerts += vote_result_alerts(con, events, now)
     for q in latest_quakes:
         for z in zones:
             if q["ts"] > now - 6 * HOUR and zone_matches(z, "", q["lat"], q["lon"], True):
@@ -468,7 +516,7 @@ def build(con, errors):
     now = int(time.time())
     stored = con.execute("SELECT source, title, url, ts FROM items ORDER BY ts").fetchall()
     # Classify again on every build, so keyword changes in config.json also apply to items already stored.
-    rows = [(source, title, url, ts, *classify(title)) for source, title, url, ts in stored]
+    rows = [(source, title, url, ts, *classify(title, source)) for source, title, url, ts in stored]
     relevant = [row for row in rows if row[4] and row[5]]
     vectors = {}
     if EMB.get("enabled"):
