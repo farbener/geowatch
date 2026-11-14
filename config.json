@@ -42,6 +42,36 @@
           19
         ]
       }
+    },
+    "internet_outages": {
+      "enabled": true,
+      "token": "",
+      "days": 7
+    },
+    "markets": {
+      "enabled": true,
+      "symbols": [
+        {
+          "name": "Brent oil",
+          "symbol": "cb.f",
+          "alert_pct": 3
+        },
+        {
+          "name": "US gas",
+          "symbol": "ng.f",
+          "alert_pct": 6
+        },
+        {
+          "name": "Gold",
+          "symbol": "xauusd",
+          "alert_pct": 2
+        },
+        {
+          "name": "USD/CHF",
+          "symbol": "usdchf",
+          "alert_pct": 1
+        }
+      ]
     }
   },
   "embedding": {

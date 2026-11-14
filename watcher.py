@@ -139,6 +139,7 @@ SIGNALS = CFG.get("signals", {})
 SIGNAL_REFRESH = 30 * 60  # sources update every few hours at most; no need to poll every scan
 last_signals = 0
 latest_quakes = []  # used by the personal zone alerts
+latest_net_outages = []
 
 
 def fetch_earthquakes():
@@ -174,13 +175,67 @@ def fetch_fires():
     return fires[:cfg["max_points"]]  # keep the page light; the strongest detections matter most
 
 
+def fetch_internet_outages():
+    """Cloudflare Radar outage annotations: curated, confirmed internet outages (free API token needed)."""
+    cfg = SIGNALS["internet_outages"]
+    url = (f"https://api.cloudflare.com/client/v4/radar/annotations/outages?dateRange={cfg['days']}d"
+           "&limit=100&format=json")
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {cfg['token']}",
+                                               "User-Agent": "geowatch/1.0 (self-hosted)"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.load(resp)
+    outages = []
+    for a in data["result"]["annotations"]:
+        names = [d.get("name") or d.get("code") for d in a.get("locationsDetails") or []] or a.get("locations") or []
+        outage = a.get("outage") or {}
+        outages.append({"id": a.get("id"), "countries": names, "start": a.get("startDate"), "end": a.get("endDate"),
+                        "cause": (outage.get("outageCause") or "").replace("_", " ").lower(),
+                        "type": (outage.get("outageType") or "").lower(),
+                        "description": a.get("description") or "", "link": a.get("linkedUrl") or ""})
+    outages.sort(key=lambda o: o["start"] or "", reverse=True)
+    return outages
+
+
+def fetch_markets():
+    """Daily closes from Stooq (free CSV, no key); change versus the previous close."""
+    d1 = datetime.fromtimestamp(time.time() - 14 * DAY).strftime("%Y%m%d")
+    d2 = datetime.now().strftime("%Y%m%d")
+    out = []
+    for m in SIGNALS["markets"]["symbols"]:
+        text = fetch(f"https://stooq.com/q/d/l/?s={m['symbol']}&i=d&d1={d1}&d2={d2}").decode("utf-8", "replace")
+        rows = [r for r in csv.DictReader(io.StringIO(text)) if r.get("Close")]
+        if len(rows) < 2:
+            raise ValueError(f"{m['name']}: no data ({text.strip()[:40]})")
+        last, prev = float(rows[-1]["Close"]), float(rows[-2]["Close"])
+        out.append({"name": m["name"], "price": last, "change_pct": round((last / prev - 1) * 100, 2),
+                    "date": rows[-1]["Date"], "alert_pct": m["alert_pct"]})
+    return out
+
+
 def update_signals(errors):
     """Write web/signals.json with the non-news layers. Each source fails on its own."""
     global last_signals
     if time.time() - last_signals < SIGNAL_REFRESH:
         return
     last_signals = time.time()
-    out = {"updated": int(time.time()), "earthquakes": [], "fires": [], "fires_status": "off"}
+    out = {"updated": int(time.time()), "earthquakes": [], "fires": [], "fires_status": "off",
+           "internet_outages": [], "internet_status": "off", "markets": []}
+    net = SIGNALS.get("internet_outages", {})
+    if net.get("enabled"):
+        if not net.get("token"):
+            out["internet_status"] = "no key"
+        else:
+            try:
+                out["internet_outages"] = fetch_internet_outages()
+                out["internet_status"] = "on"
+            except Exception as e:
+                out["internet_status"] = "failed"
+                errors.append(f"Internet outages: {e}")
+    if SIGNALS.get("markets", {}).get("enabled"):
+        try:
+            out["markets"] = fetch_markets()
+        except Exception as e:
+            errors.append(f"Markets: {e}")
     if SIGNALS.get("earthquakes", {}).get("enabled"):
         try:
             out["earthquakes"] = fetch_earthquakes()
@@ -199,6 +254,7 @@ def update_signals(errors):
                 errors.append(f"Fires: {e}")
     (WEB / "signals.json").write_text(json.dumps(out))
     latest_quakes[:] = out["earthquakes"]
+    latest_net_outages[:] = out["internet_outages"]
 
 
 def update_frontlines():
@@ -507,6 +563,15 @@ def send_alerts(con, events, now):
                 alerts.append((f"{z['name']}|{e['sources'][0]['url']}", f"{z['name']}: {e['category']}",
                                f"{e['title']} ({note})", e["sources"][0]["url"], 4 if e["important"] else 3))
     alerts += vote_result_alerts(con, events, now)
+    for o in latest_net_outages:
+        started = o["start"] and datetime.fromisoformat(o["start"].replace("Z", "+00:00")).timestamp()
+        if not started or started < now - DAY:
+            continue
+        for z in zones:
+            if any(k in name.lower() for name in o["countries"] for k in z.get("keywords", [])):
+                alerts.append((f"{z['name']}|net|{o['id']}", f"{z['name']}: internet outage",
+                               f"{', '.join(o['countries'])}: {o['cause'] or 'cause unknown'}. {o['description']}"[:300],
+                               o["link"], 4))
     for q in latest_quakes:
         for z in zones:
             if q["ts"] > now - 6 * HOUR and zone_matches(z, "", q["lat"], q["lon"], True):

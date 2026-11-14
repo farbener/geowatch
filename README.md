@@ -148,3 +148,13 @@ Phrases match whole words only.
   resolved notices from status pages are skipped (`status_page_skip`).
 - **Push:** an outage confirmed by 2+ independent sources that names a provider from `outage_providers`
   (Microsoft 365, Azure, AWS, Cloudflare, Swisscom, ...) is pushed once, independent of your zones (`outage_push`).
+
+## Internet outages and market prices
+
+- **Internet outages:** Cloudflare Radar outage annotations (curated, confirmed outages) of the last 7 days, listed
+  in the side panel. Needs a free Cloudflare API token with Radar read access, stored hidden with
+  `python3 /opt/geowatch/zones.py secret signals.internet_outages.token`. Outages in a country named by one of your
+  zone keywords are pushed.
+- **Markets:** daily closes of Brent oil, US natural gas, gold and USD/CHF from Stooq (no key), shown in the header.
+  Moves beyond `alert_pct` are underlined. Symbols are editable in `signals.markets`.
+- `zones.py secret <dotted.key>` stores any key hidden in config.local.json, e.g. `signals.fires.map_key`.

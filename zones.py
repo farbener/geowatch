@@ -9,6 +9,7 @@ Run on the server as root, e.g.:
   python3 /opt/geowatch/zones.py topic        # asks for the ntfy topic URL, hidden
   python3 /opt/geowatch/zones.py test         # sends a test push
   python3 /opt/geowatch/zones.py token        # creates the token for editing zones in the web page
+  python3 /opt/geowatch/zones.py secret signals.internet_outages.token   # stores an API key, hidden
 Changes apply at the next scan, no restart needed.
 """
 import argparse
@@ -87,6 +88,8 @@ def main():
     sub.add_parser("topic")
     sub.add_parser("test")
     sub.add_parser("token")
+    secret = sub.add_parser("secret", help="store an API key, e.g. signals.internet_outages.token")
+    secret.add_argument("key")
     args = ap.parse_args()
     cfg = load()
     zones = cfg.setdefault("alert_zones", [])  # noqa: used by list
@@ -112,6 +115,16 @@ def main():
         cfg["admin_token"] = secrets.token_urlsafe(18)
         print("Token for the web page (shown once, enter it when the page asks):")
         print(cfg["admin_token"])
+    elif args.cmd == "secret":
+        value = getpass.getpass(f"Value for {args.key} (hidden): ").strip()
+        if not value:
+            raise SystemExit("Nothing entered, nothing changed.")
+        node = cfg
+        *parents, leaf = args.key.split(".")
+        for part in parents:
+            node = node.setdefault(part, {})
+        node[leaf] = value
+        print(f"{args.key} saved.")
     elif args.cmd == "test":
         if not cfg.get("ntfy_url"):
             raise SystemExit("No topic set. Run: zones.py topic")

@@ -62,6 +62,12 @@
   .coverage .line { margin-top:6px; }
   .coverage .line b { font-weight:600; }
   .coverage .line small { display:inline; margin:0; }
+  #markets { margin-left:auto; display:flex; gap:14px; }
+  #markets .up { color:var(--stable); } #markets .down { color:var(--boiling); }
+  #markets .big { font-weight:700; text-decoration:underline; }
+  #netOutages { padding:0 14px 8px; border-bottom:1px solid var(--line); font-size:13px; }
+  #netOutages div { padding:4px 0; }
+  #netOutages small { color:var(--dim); }
   .pot, .event { padding:7px 14px; border-bottom:1px solid var(--line); }
   .pot { display:flex; justify-content:space-between; cursor:pointer; }
   .pot.active { background:#26303c; }
@@ -89,6 +95,7 @@
   <span id="updated">loading…</span>
   <span id="errors"></span>
   <button id="alertBtn">Enable alerts</button>
+  <span id="markets" title="Daily change versus the previous close (Stooq). Large moves in oil, gas or gold often follow real escalation; rumours rarely move them."></span>
 </header>
 <div id="ticker"><b>LIVE</b><div id="tickerWrap"><div id="tickerTrack"></div></div></div>
 <div id="status"><span id="changes"></span><span id="health"></span></div>
@@ -120,6 +127,7 @@
     </form>
     <span id="zoneMsg"></span>
   </div>
+  <h2>Internet outages (Cloudflare Radar, 7 days)</h2><div id="netOutages"></div>
   <div id="detail"></div>
   <h2>Boiling pots</h2><div id="pots"></div>
   <h2 id="eventsTitle">Events</h2><div id="events"></div>
@@ -237,6 +245,8 @@ function renderDetail() {
      "Dashed blue circles are your alert zones. \"My alert zones\" in the Region filter shows only what concerns them.",
      "Verified needs 2+ independent reports: identical headlines count once (wire copies), and state-funded outlets alone are not enough.",
      "Click an event in the list to see which outlets covered it, how they are rated politically (AllSides, MBFC as fallback) and each outlet's own headline. Most feeds here are rated centre to lean-left, so a missing right-leaning view is common.",
+     "Prices in the header: daily change of oil, gas, gold and USD/CHF. Underlined = an unusually large move, a cross-check on escalation news.",
+     "Internet outages are confirmed country or regional outages from Cloudflare Radar, often a sign of shutdowns, conflict damage or power failures.",
      "Pick a region for an explanation and its activity over the last 60 days."].forEach(t => box.append(el("p", "", t)));
     return;
   }
@@ -715,6 +725,39 @@ async function loadSignals() {
     .bindTooltip(el("span", "", `Fire detection, ${f.frp} MW, ${f.area}, ${ago(f.ts)}`))
     .addTo(fireLayer));
   syncSignalLayers();
+  renderMarkets();
+  renderNetOutages();
+}
+
+function renderMarkets() {
+  const box = $("markets");
+  box.replaceChildren();
+  (signals.markets || []).forEach(m => {
+    const sign = m.change_pct > 0 ? "+" : "";
+    const big = Math.abs(m.change_pct) >= m.alert_pct;
+    const item = el("span", (m.change_pct >= 0 ? "up" : "down") + (big ? " big" : ""),
+                    `${m.name} ${m.price.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${sign}${m.change_pct}%`);
+    item.title = `Close ${m.date}. Highlighted from ±${m.alert_pct}% per day.`;
+    box.append(item);
+  });
+}
+
+function renderNetOutages() {
+  const box = $("netOutages");
+  box.replaceChildren();
+  if (signals.internet_status === "no key") return box.append(el("small", "", "Needs a free Cloudflare API token (see README)."));
+  if (signals.internet_status === "failed") return box.append(el("small", "", "Could not load, see failing sources in the header."));
+  const list = signals.internet_outages || [];
+  if (!list.length) return box.append(el("small", "", "No confirmed outages in the last 7 days."));
+  list.slice(0, 12).forEach(o => {
+    const row = el("div");
+    const when = o.start ? new Date(o.start).toLocaleString([], { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "?";
+    const name = el(o.link ? "a" : "b", "", o.countries.join(", ") || "Unknown");
+    if (o.link && /^https?:\/\//.test(o.link)) { name.href = o.link; name.target = "_blank"; name.rel = "noopener noreferrer"; }
+    row.append(name, el("small", "", ` · ${o.cause || "cause unknown"}${o.type ? ", " + o.type : ""} · since ${when}${o.end ? ", ended" : ", ongoing"}`));
+    if (o.description) row.append(el("div", "", o.description));
+    box.append(row);
+  });
 }
 
 $("reset").onclick = () => {
