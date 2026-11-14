@@ -234,7 +234,10 @@ LOCAL_POLITICS = {f["name"] for f in CFG["feeds"] if f.get("local_politics")}
 STATUS_PAGES = {f["name"] for f in CFG["feeds"] if f.get("status_page")}  # provider status pages: every entry is an outage
 OUTAGE_RE = word_re(CFG.get("outage_keywords", []))
 STATUS_SKIP_RE = word_re(CFG.get("status_page_skip", []))
-PROVIDER_RE = word_re(CFG.get("outage_providers", []))  # national outlets: all politics counts
+PROVIDER_RE = word_re(CFG.get("outage_providers", []))
+# status pages list planned work as "MNL (Manila) on 2026-11-24": a date in the title means maintenance
+STATUS_SKIP_DATE_RE = re.compile(CFG.get("status_page_skip_regex", r"(?!x)x"))
+AFTERMATH_RE = word_re(CFG.get("outage_aftermath", []))  # "services restored", "apologises": over, not a new alert  # national outlets: all politics counts
 VOTES = CFG.get("vote_results", {})
 VOTE_CONTEXT_RE, VOTE_RESULT_RE, VOTE_PROJECTION_RE = (word_re(VOTES.get(k, [])) for k in ("context", "result", "projection"))
 PLACE_RE = [(tuple(pos), keyword_re([name])) for name, pos in CFG.get("places", {}).items()]
@@ -248,7 +251,8 @@ def first_match(patterns, text):
 def classify(title, source=None):
     """Return (hotspot, category); (None, None) means the item is not relevant."""
     if source in STATUS_PAGES:
-        return (None, None) if STATUS_SKIP_RE.search(title) else ("world", "outage")
+        skip = STATUS_SKIP_RE.search(title) or STATUS_SKIP_DATE_RE.search(title)
+        return (None, None) if skip else ("world", "outage")
     hotspot = first_match(HOTSPOT_RE, title)
     incident = "incident" if INCIDENT_RE.search(title) else None
     outage = "outage" if OUTAGE_RE.search(title) else None
@@ -483,6 +487,7 @@ def send_alerts(con, events, now):
     if CFG.get("outage_push"):
         for e in events:  # confirmed outages at providers that matter to the user (cloud, M365, telcos)
             if e["category"] == "outage" and e["verified"] and not e["feature"] and e["ts"] > now - 6 * HOUR \
+                    and not AFTERMATH_RE.search(e["title"]) \
                     and any(PROVIDER_RE.search(s["title"]) for s in e["sources"]):
                 alerts.append((f"outage|{e['sources'][0]['url']}", "Outage",
                                f"{e['title']} ({', '.join(x['name'] for x in e['sources'])})", e["sources"][0]["url"], 4))

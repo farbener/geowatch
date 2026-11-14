@@ -1637,5 +1637,21 @@
     "salt mobile",
     "starlink"
   ],
-  "outage_push": true
+  "outage_push": true,
+  "status_page_skip_regex": "\\b\\d{4}-\\d{2}-\\d{2}\\b",
+  "outage_aftermath": [
+    "restored",
+    "restores",
+    "resume",
+    "resumes",
+    "resumed",
+    "back online",
+    "back up",
+    "apologises",
+    "apologizes",
+    "apology",
+    "sorry",
+    "funniest",
+    "reactions"
+  ]
 }
