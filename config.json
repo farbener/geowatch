@@ -1157,11 +1157,6 @@
       "name": "20 Minuten",
       "url": "https://partner-feeds.20min.ch/rss/20minuten/schweiz",
       "local_politics": true
-    },
-    {
-      "name": "Blick",
-      "url": "https://www.blick.ch/schweiz/rss.xml",
-      "local_politics": true
     }
   ],
   "gdelt_enabled": false,

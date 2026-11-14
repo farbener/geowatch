@@ -134,7 +134,7 @@ Phrases match whole words only.
 
 ## Swiss outlets and vote results
 
-- Swiss feeds (NZZ, SRF, Tages-Anzeiger, 20 Minuten, Blick, The Local) carry `"local_politics": true`: every vote or
+- Swiss feeds (NZZ, SRF, Tages-Anzeiger, 20 Minuten, The Local) carry `"local_politics": true`: every vote or
   referendum headline from them counts as Swiss politics. German keywords cover Abstimmungen and security incidents.
 - **Vote result push:** final results of Swiss popular votes are pushed to the phone (`vote_results` in config.json).
   Needs a result wording (lehnt ab, sagt Ja, rejected, ...) and no projection wording (Hochrechnung, Trend, gfs, ...),
