@@ -4,6 +4,12 @@
   "min_sources": 2,
   "min_shared_words": 3,
   "ntfy_url": "",
+  "signals": {
+    "earthquakes": {"enabled": true, "url": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson"},
+    "fires": {"enabled": true, "map_key": "", "source": "VIIRS_SNPP_NRT", "days": 1, "min_frp": 1, "max_points": 3000,
+      "areas": {"Ukraine / Russia border": [29.5, 44, 41, 53.5], "Israel / Gaza / Lebanon": [34, 29.5, 36.7, 34.7],
+                "Sudan": [21.8, 8.5, 38.6, 22.2], "Yemen": [42, 12, 54, 19]}}
+  },
   "embedding": {"enabled": true, "url": "http://localhost:11434", "model": "all-minilm", "min_similarity": 0.7},
   "incident_keywords": ["bombs found", "bombs discovered", "bomb found", "bomb discovered", "bomb squad", "bomb scare", "bomb threat", "bombing", "pipe bomb", "car bomb", "suicide bomb", "explosi", "blast", "detonat", "grenade", "sabotage", "terror", "arson", "assassinat", "hostage", "kidnap", "abduct", "hijack", "massacre", "ambush", "militant", "insurgent", "gunman", "gunmen", "gunfire", "shooting", "shot dead", "stabbing", "attacker", "attack on", "airstrike", "air strike", "drone strike", "drone attack", "missile strike", "drone sighting", "unidentified drone", "plot foiled", "foil", "plot to attack", "plot to kill", "evacuat", "lockdown", "curfew", "riot", "unrest", "coup attempt", "military coup", "martial law", "state of emergency", "airspace clos", "undersea cable", "pipeline attack", "cyberattack", "cyber attack", "cyber-attack", "ransomware", "hackers", "hacked", "espionage", "spy ring", "spying"],
   "severe_keywords": ["bomb", "explosi", "blast", "killed", "dead", "massacre", "terror", "assassinat", "hostage",

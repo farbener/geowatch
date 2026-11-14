@@ -77,3 +77,12 @@ Setup: `ollama pull all-minilm`. Raise `min_similarity` if unrelated events merg
   `git pull --ff-only` and restarts Geowatch only when new commits arrived.
   Check it with `systemctl list-timers geowatch-update.timer` and `journalctl -u geowatch-update`.
 - Anything pushed to the repository's main branch runs on the server within 15 minutes.
+
+## Hard-signal layers
+
+- **Earthquakes:** USGS feed, magnitude 4.5+ of the last 24 hours, no key needed.
+- **Satellite fire detections:** NASA FIRMS (VIIRS), last 24 hours, only inside `signals.fires.areas`.
+  Needs a free MAP_KEY from https://firms.modaps.eosdis.nasa.gov/api/map_key/ , set in `config.local.json`:
+  `{"signals": {"fires": {"map_key": "<key>"}}}`. Fires are not proof of attacks: wildfires, farming and
+  gas flares look the same. Iran and the Gulf are left out on purpose because of permanent gas flares.
+- Both refresh every 30 minutes and fail independently; errors show in the header.

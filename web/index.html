@@ -89,6 +89,8 @@
     <label>Period <select id="hours"><option value="24">last 24 hours</option><option value="72" selected>last 72 hours</option></select></label>
     <label><input type="checkbox" id="showUnverified" checked> include unverified (single source)</label>
     <label><input type="checkbox" id="importantOnly"> important only</label>
+    <label><input type="checkbox" id="showQuakes" checked><i class="dot" style="background:#b07a3c"></i> Earthquakes M4.5+ (USGS, 24h)</label>
+    <label><input type="checkbox" id="showFires" checked><i class="dot" style="background:#ff3b00"></i> Satellite fire detections (NASA, 24h)</label>
     <input type="search" id="q" placeholder="Search titles, e.g. Illinois">
     <label><input type="checkbox" id="searchAll" checked> search ignores the region filter</label>
     <button id="reset" type="button">Reset filters</button>
@@ -115,6 +117,9 @@ L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_M
 const frontlines = L.layerGroup().addTo(map);
 const markers = L.layerGroup().addTo(map);
 const eventMarkers = L.layerGroup().addTo(map);
+const quakeLayer = L.layerGroup(), fireLayer = L.layerGroup();
+const fastRenderer = L.canvas({ padding: .5 });  // thousands of fire points: canvas instead of SVG
+let signals = null;
 const $ = id => document.getElementById(id);
 let data = null;
 
@@ -176,6 +181,8 @@ function renderDetail() {
      "Security incidents and military movements are collected worldwide, not only in watched regions. Those without a known place appear in the list only.",
      "Shaded areas in Ukraine: red and dark red = Russian-held, grey = status unknown (contested). Hover for the status.",
      "The Live list shows important events: confirmed by 2+ sources, or with severe keywords such as explosion, killed, missile. New entries are highlighted and trigger an alert.",
+     "Brown circles are earthquakes (bigger = stronger). They are natural events unless reported otherwise.",
+     "Small red points are satellite fire detections in selected conflict areas. Clusters along a front often mean shelling or strikes, but wildfires, farming and industry look the same.",
      "Pick a region for an explanation of what is going on there."].forEach(t => box.append(el("p", "", t)));
     return;
   }
@@ -357,6 +364,9 @@ function renderHealth() {
     el("span", stale ? "bad" : "", stale ? `Last scan ${ago(data.updated)}, scanner may be down` : `Last scan ${ago(data.updated)}`), " · ",
     el("span", h.feeds_failed ? "warn" : "ok", `${ok}/${h.feeds_total} feeds OK`), " · Event merging: ",
     el("span", merging[0], merging[1]));
+  const fires = signals && signals.fires_status;
+  if (fires && fires !== "on") box.append(" · Fires: ", el("span", fires === "failed" ? "bad" : "warn",
+    fires === "no key" ? "needs NASA key" : fires));
   box.title = data.errors.join("\n");
 }
 
@@ -434,6 +444,29 @@ async function load() {
 }
 $("filters").addEventListener("input", render);
 $("filters").addEventListener("change", render);
+$("filters").addEventListener("change", syncSignalLayers);
+function syncSignalLayers() {
+  [[quakeLayer, "showQuakes"], [fireLayer, "showFires"]].forEach(([layer, id]) =>
+    $(id).checked ? layer.addTo(map) : layer.remove());
+}
+
+async function loadSignals() {
+  try {
+    signals = await (await fetch("signals.json", { cache: "no-store" })).json();
+  } catch { return; /* layer is optional */ }
+  quakeLayer.clearLayers();
+  fireLayer.clearLayers();
+  signals.earthquakes.forEach(q => L.circleMarker([q.lat, q.lon], {
+      radius: 3 + Math.max(0, q.mag - 4) * 3, color: "#b07a3c", weight: 2, fillOpacity: .35 })
+    .bindTooltip(el("span", "", `Earthquake M${q.mag}, ${q.depth} km deep, ${q.place}, ${ago(q.ts)}`))
+    .addTo(quakeLayer));
+  signals.fires.forEach(f => L.circleMarker([f.lat, f.lon], {
+      renderer: fastRenderer, radius: 2.5, stroke: false, fillColor: "#ff3b00", fillOpacity: .75 })
+    .bindTooltip(el("span", "", `Fire detection, ${f.frp} MW, ${f.area}, ${ago(f.ts)}`))
+    .addTo(fireLayer));
+  syncSignalLayers();
+}
+
 $("reset").onclick = () => {
   document.querySelectorAll("#cats input").forEach(i => i.checked = true);
   $("region").value = "";
@@ -445,7 +478,9 @@ $("reset").onclick = () => {
   render();
 };
 load();
-setInterval(load, 60 * 1000);  // the scanner writes new data every few minutes
+loadSignals();
+setInterval(load, 60 * 1000);
+setInterval(loadSignals, 10 * 60 * 1000);  // the scanner writes new data every few minutes
 </script>
 </body>
 </html>

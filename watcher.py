@@ -8,7 +8,9 @@ enough independent sources report it. Writes web/data.json and serves web/.
 Usage:  python watcher.py          # scan loop + web server
         python watcher.py --once   # single scan, no server (cron/testing)
 """
+import csv
 import html
+import io
 import json
 import math
 import operator
@@ -33,11 +35,18 @@ WEB = ROOT / "web"
 DB = ROOT / "data" / "watcher.db"
 CFG = json.loads((ROOT / "config.json").read_text())
 # Machine-specific settings (ntfy topic, thread count, ...) live in config.local.json, which git ignores,
-# so pulling updates never overwrites them. Dict values are merged one level deep.
+# so pulling updates never overwrites them. Nested settings are merged, not replaced.
+def merge(base, override):
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            merge(base[key], value)
+        else:
+            base[key] = value
+
+
 LOCAL_CFG = ROOT / "config.local.json"
 if LOCAL_CFG.exists():
-    for key, value in json.loads(LOCAL_CFG.read_text()).items():
-        CFG[key] = {**CFG[key], **value} if isinstance(value, dict) and isinstance(CFG.get(key), dict) else value
+    merge(CFG, json.loads(LOCAL_CFG.read_text()))
 
 HOUR, DAY = 3600, 86400
 KEEP_DAYS = 8          # history needed for the 7-day heat baseline
@@ -114,6 +123,70 @@ def in_bbox(geometry, bbox):
     while isinstance(point[0], list):
         point = point[0]
     return not bbox or (bbox[0] <= point[0] <= bbox[2] and bbox[1] <= point[1] <= bbox[3])
+
+
+SIGNALS = CFG.get("signals", {})
+SIGNAL_REFRESH = 30 * 60  # sources update every few hours at most; no need to poll every scan
+last_signals = 0
+
+
+def fetch_earthquakes():
+    """USGS GeoJSON feed. Strong shallow quakes can also be large explosions, but this is not told apart."""
+    quakes = []
+    for f in json.loads(fetch(SIGNALS["earthquakes"]["url"]))["features"]:
+        lon, lat, depth = f["geometry"]["coordinates"][:3]
+        p = f["properties"]
+        quakes.append({"lat": lat, "lon": lon, "depth": round(depth or 0), "mag": p["mag"],
+                       "place": p.get("place") or "", "ts": p["time"] // 1000, "url": p.get("url", "")})
+    return quakes
+
+
+def fetch_fires():
+    """NASA FIRMS satellite fire detections in the configured conflict areas (needs a free MAP_KEY)."""
+    cfg = SIGNALS["fires"]
+    fires = []
+    for area, bbox in cfg["areas"].items():
+        url = (f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{cfg['map_key']}/{cfg['source']}/"
+               f"{','.join(map(str, bbox))}/{cfg['days']}")
+        text = fetch(url).decode("utf-8", "replace")
+        if not text.startswith("latitude"):  # FIRMS answers errors such as an invalid key as plain text
+            raise ValueError(f"{area}: {text.strip()[:80]}")
+        for row in csv.DictReader(io.StringIO(text)):
+            frp = float(row.get("frp") or 0)
+            if row.get("confidence") == "l" or frp < cfg["min_frp"]:  # VIIRS: l = low confidence
+                continue
+            when = datetime.strptime(row["acq_date"] + row["acq_time"].zfill(4), "%Y-%m-%d%H%M")
+            fires.append({"lat": round(float(row["latitude"]), 4), "lon": round(float(row["longitude"]), 4),
+                          "frp": round(frp, 1), "area": area,
+                          "ts": int(when.replace(tzinfo=timezone.utc).timestamp())})
+    fires.sort(key=lambda f: -f["frp"])
+    return fires[:cfg["max_points"]]  # keep the page light; the strongest detections matter most
+
+
+def update_signals(errors):
+    """Write web/signals.json with the non-news layers. Each source fails on its own."""
+    global last_signals
+    if time.time() - last_signals < SIGNAL_REFRESH:
+        return
+    last_signals = time.time()
+    out = {"updated": int(time.time()), "earthquakes": [], "fires": [], "fires_status": "off"}
+    if SIGNALS.get("earthquakes", {}).get("enabled"):
+        try:
+            out["earthquakes"] = fetch_earthquakes()
+        except Exception as e:
+            errors.append(f"Earthquakes: {e}")
+    fires_cfg = SIGNALS.get("fires", {})
+    if fires_cfg.get("enabled"):
+        if not fires_cfg.get("map_key"):
+            out["fires_status"] = "no key"
+        else:
+            try:
+                out["fires"] = fetch_fires()
+                out["fires_status"] = "on"
+            except Exception as e:
+                out["fires_status"] = "failed"
+                errors.append(f"Fires: {e}")
+    (WEB / "signals.json").write_text(json.dumps(out))
 
 
 def update_frontlines():
@@ -331,6 +404,7 @@ def scan():
             items += found
             if error:
                 errors.append(error)
+    update_signals(errors)
     for name, job in (("GDELT", lambda: items.extend(fetch_gdelt())), ("Frontlines", update_frontlines)):
         try:
             job()

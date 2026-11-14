@@ -2,6 +2,7 @@ data/
 __pycache__/
 web/data.json
 web/frontlines.json
+web/signals.json
 config.local.json
 *.bak
 patch_embed.py
