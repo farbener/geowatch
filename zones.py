@@ -8,6 +8,7 @@ Run on the server as root, e.g.:
   python3 /opt/geowatch/zones.py remove "Mallorca"
   python3 /opt/geowatch/zones.py topic        # asks for the ntfy topic URL, hidden
   python3 /opt/geowatch/zones.py test         # sends a test push
+  python3 /opt/geowatch/zones.py token        # creates the token for editing zones in the web page
 Changes apply at the next scan, no restart needed.
 """
 import argparse
@@ -15,6 +16,7 @@ import getpass
 import json
 import os
 import pwd
+import secrets
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -28,9 +30,12 @@ def load():
 
 def save(cfg):
     LOCAL.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
-    if os.geteuid() == 0:  # keep the file owned by the service user and private (it may hold keys)
-        user = pwd.getpwnam("geowatch")
-        os.chown(LOCAL, user.pw_uid, user.pw_gid)
+    if os.geteuid() == 0:  # run as root: hand the file to the service user (if it exists), keep it private
+        try:
+            user = pwd.getpwnam("geowatch")
+            os.chown(LOCAL, user.pw_uid, user.pw_gid)
+        except KeyError:
+            pass
     LOCAL.chmod(0o600)
 
 
@@ -44,6 +49,26 @@ def geocode(name):
         raise SystemExit(f'No place found for "{name}". Pass --lat and --lon instead.')
     print(f"Found: {hits[0]['display_name']}")
     return round(float(hits[0]["lat"]), 4), round(float(hits[0]["lon"]), 4)
+
+
+def add_zone(cfg, name, radius_km=50, keywords="", until=None, lat=None, lon=None):
+    """Add or replace a zone; looks up coordinates by name unless given. Returns the zone."""
+    if lat is None or lon is None:
+        lat, lon = geocode(name)
+    words = {name.lower(), *(w.strip().lower() for w in keywords.split(",") if w.strip())}
+    zones = cfg.setdefault("alert_zones", [])
+    zones[:] = [z for z in zones if z["name"].lower() != name.lower()]  # adding again replaces
+    zone = {"name": name, "lat": lat, "lon": lon, "radius_km": radius_km, "keywords": sorted(words), "until": until}
+    zones.append(zone)
+    return zone
+
+
+def remove_zone(cfg, name):
+    """Returns True if a zone was removed."""
+    zones = cfg.setdefault("alert_zones", [])
+    before = len(zones)
+    zones[:] = [z for z in zones if z["name"].lower() != name.lower()]
+    return len(zones) < before
 
 
 def main():
@@ -61,9 +86,10 @@ def main():
     rm.add_argument("name")
     sub.add_parser("topic")
     sub.add_parser("test")
+    sub.add_parser("token")
     args = ap.parse_args()
     cfg = load()
-    zones = cfg.setdefault("alert_zones", [])
+    zones = cfg.setdefault("alert_zones", [])  # noqa: used by list
 
     if args.cmd == "list":
         for z in zones:
@@ -72,22 +98,20 @@ def main():
         print("ntfy topic:", "set" if cfg.get("ntfy_url") else "NOT SET (run: zones.py topic)")
         return
     if args.cmd == "add":
-        lat, lon = (args.lat, args.lon) if args.lat is not None and args.lon is not None else geocode(args.name)
-        words = {args.name.lower(), *(w.strip().lower() for w in args.keywords.split(",") if w.strip())}
-        zones[:] = [z for z in zones if z["name"].lower() != args.name.lower()]  # adding again replaces
-        zones.append({"name": args.name, "lat": lat, "lon": lon, "radius_km": args.radius,
-                      "keywords": sorted(words), "until": args.until})
+        add_zone(cfg, args.name, args.radius, args.keywords, args.until, args.lat, args.lon)
         print(f"Zone {args.name} saved.")
     elif args.cmd == "remove":
-        before = len(zones)
-        zones[:] = [z for z in zones if z["name"].lower() != args.name.lower()]
-        print("Removed." if len(zones) < before else "No zone with that name.")
+        print("Removed." if remove_zone(cfg, args.name) else "No zone with that name.")
     elif args.cmd == "topic":
         url = getpass.getpass("ntfy topic URL (e.g. https://ntfy.sh/<long-random-name>): ").strip()
         if not url.startswith("http"):
             raise SystemExit("Not a URL, nothing changed.")
         cfg["ntfy_url"] = url
         print("Topic saved.")
+    elif args.cmd == "token":
+        cfg["admin_token"] = secrets.token_urlsafe(18)
+        print("Token for the web page (shown once, enter it when the page asks):")
+        print(cfg["admin_token"])
     elif args.cmd == "test":
         if not cfg.get("ntfy_url"):
             raise SystemExit("No topic set. Run: zones.py topic")

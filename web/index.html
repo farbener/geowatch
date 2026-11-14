@@ -50,6 +50,12 @@
   .live.fresh { background:#3a2a12; }
   #liveDot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--boiling); margin-right:6px; animation:pulse 2s infinite; }
   @keyframes pulse { 50% { opacity:.25; } }
+  #zones { padding:0 14px 10px; border-bottom:1px solid var(--line); display:grid; gap:6px; }
+  #zones .zone { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  #zones .zone small { color:var(--dim); }
+  #zoneForm { display:grid; grid-template-columns:1fr 70px; gap:6px; }
+  #zoneForm input { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 6px; min-width:0; }
+  #zoneMsg { font-size:12px; color:var(--rising); }
   .pot, .event { padding:7px 14px; border-bottom:1px solid var(--line); }
   .pot { display:flex; justify-content:space-between; cursor:pointer; }
   .pot.active { background:#26303c; }
@@ -96,6 +102,17 @@
     <button id="reset" type="button">Reset filters</button>
   </div>
   <h2><i id="liveDot"></i>Live: important events, last 6 hours</h2><div id="live"></div>
+  <h2>My alert zones (phone push)</h2>
+  <div id="zones">
+    <div id="zoneList"></div>
+    <form id="zoneForm">
+      <input id="zName" placeholder="Place, e.g. Mallorca" required>
+      <input id="zRadius" type="number" min="1" max="1000" value="50" title="Radius in km">
+      <input id="zUntil" type="date" title="Optional end date (for travel)">
+      <button type="submit">Add</button>
+    </form>
+    <span id="zoneMsg"></span>
+  </div>
   <div id="detail"></div>
   <h2>Boiling pots</h2><div id="pots"></div>
   <h2 id="eventsTitle">Events</h2><div id="events"></div>
@@ -416,6 +433,74 @@ function showAlertState() {
 }
 $("alertBtn").onclick = () => Notification.requestPermission().then(showAlertState);
 showAlertState();
+
+// ---------- alert zones (token-protected API) ----------
+
+function zoneToken(forceAsk) {
+  let token = null;
+  try { token = localStorage.getItem("geowatch_token"); } catch { /* ignore */ }
+  if (!token || forceAsk) {
+    token = prompt("Zone token (create it on the server with: zones.py token)");
+    if (!token) return null;
+    try { localStorage.setItem("geowatch_token", token.trim()); } catch { /* ignore */ }
+  }
+  return token.trim();
+}
+
+async function zoneApi(method, body, retried) {
+  const token = zoneToken(false);
+  if (!token) throw new Error("No token entered");
+  const res = await fetch("api/zones", { method, headers: { "Content-Type": "application/json", "X-Geowatch-Token": token },
+                                          body: body && JSON.stringify(body) });
+  const out = await res.json();
+  if (res.status === 401 && !retried) {  // wrong or outdated token: ask once more
+    try { localStorage.removeItem("geowatch_token"); } catch { /* ignore */ }
+    return zoneApi(method, body, true);
+  }
+  if (!res.ok) throw new Error(out.error || res.statusText);
+  return out.zones;
+}
+
+function renderZones(zones) {
+  const list = $("zoneList");
+  list.replaceChildren();
+  const today = new Date().toISOString().slice(0, 10);
+  if (!zones.length) list.append(el("small", "", "No zones yet."));
+  zones.forEach(z => {
+    const row = el("div", "zone");
+    const expired = z.until && z.until < today;
+    const info = el("span", "", z.name);
+    info.append(el("small", "", ` ${z.radius_km} km · ${z.until ? (expired ? "ended " : "until ") + z.until : "permanent"}`));
+    const btn = el("button", "", "Remove");
+    btn.type = "button";
+    btn.onclick = () => zoneAction("POST", { action: "remove", name: z.name });
+    row.append(info, btn);
+    list.append(row);
+  });
+}
+
+async function zoneAction(method, body) {
+  $("zoneMsg").textContent = method === "POST" ? "Saving…" : "";
+  try {
+    renderZones(await zoneApi(method, body));
+    $("zoneMsg").textContent = "";
+    return true;
+  } catch (err) {
+    $("zoneMsg").textContent = err.message;
+    return false;
+  }
+}
+
+$("zoneForm").onsubmit = async ev => {
+  ev.preventDefault();
+  const ok = await zoneAction("POST", { action: "add", name: $("zName").value, radius_km: $("zRadius").value,
+                                        until: $("zUntil").value || null });
+  if (ok) { $("zName").value = ""; $("zUntil").value = ""; }
+};
+
+// Load zones only if a token is already stored, so visitors are not prompted.
+try { if (localStorage.getItem("geowatch_token")) zoneAction("GET"); else $("zoneList").append(el("small", "", "Click Add to enter your token.")); }
+catch { /* storage unavailable */ }
 
 // ---------- loading ----------
 

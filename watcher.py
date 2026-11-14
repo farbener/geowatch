@@ -9,6 +9,7 @@ Usage:  python watcher.py          # scan loop + web server
         python watcher.py --once   # single scan, no server (cron/testing)
 """
 import csv
+import hmac
 import html
 import io
 import json
@@ -26,8 +27,9 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+import zones as zone_store
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -439,6 +441,69 @@ def build(con, errors):
     return data
 
 
+# ---------- web server ----------
+
+zone_lock = threading.Lock()
+
+
+class Handler(SimpleHTTPRequestHandler):
+    """Static files from web/, plus /api/zones to manage personal alert zones (token required)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(WEB), **kwargs)
+
+    def reply(self, status, payload):
+        body = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def authorized(self):
+        token = zone_store.load().get("admin_token")
+        if not token:
+            self.reply(403, {"error": "No token set. On the server run: zones.py token"})
+            return False
+        if not hmac.compare_digest(self.headers.get("X-Geowatch-Token", ""), token):
+            self.reply(401, {"error": "Wrong token"})
+            return False
+        return True
+
+    def do_GET(self):
+        if self.path.split("?")[0] != "/api/zones":
+            return super().do_GET()
+        if self.authorized():
+            self.reply(200, {"zones": zone_store.load().get("alert_zones", [])})
+
+    def do_POST(self):
+        if self.path != "/api/zones":
+            return self.reply(404, {"error": "Not found"})
+        if not self.authorized():
+            return
+        try:
+            req = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length", 0)), 10_000)))
+            with zone_lock:
+                cfg = zone_store.load()
+                if req.get("action") == "remove":
+                    zone_store.remove_zone(cfg, str(req["name"]))
+                else:
+                    name = str(req["name"]).strip()[:80]
+                    if not name:
+                        raise ValueError("Place name is empty")
+                    until = req.get("until") or None
+                    if until:
+                        datetime.strptime(until, "%Y-%m-%d")  # rejects malformed dates
+                    zone_store.add_zone(cfg, name, float(req.get("radius_km") or 50),
+                                        str(req.get("keywords") or ""), until)
+                zone_store.save(cfg)
+            self.reply(200, {"zones": cfg["alert_zones"]})
+        except SystemExit as e:  # geocode() reports "no place found" this way
+            self.reply(400, {"error": str(e)})
+        except Exception as e:
+            self.reply(400, {"error": f"Could not save: {e}"})
+
+
 # ---------- main ----------
 
 def scan():
@@ -484,6 +549,5 @@ if __name__ == "__main__":
         scan()
     else:
         threading.Thread(target=scan_loop, daemon=True).start()
-        handler = partial(SimpleHTTPRequestHandler, directory=str(WEB))
         print(f"serving on http://0.0.0.0:{CFG['port']}", flush=True)
-        ThreadingHTTPServer(("0.0.0.0", CFG["port"]), handler).serve_forever()
+        ThreadingHTTPServer(("0.0.0.0", CFG["port"]), Handler).serve_forever()

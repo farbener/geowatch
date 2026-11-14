@@ -98,3 +98,7 @@ Manage zones on the server (as root): `python3 /opt/geowatch/zones.py list|add|r
 Travel zones take `--until YYYY-MM-DD` and switch off by themselves. Changes apply at the next scan.
 Coordinates are looked up by name via OpenStreetMap Nominatim. Settings are stored in config.local.json.
 The in-page alerts (toasts, desktop notifications) are unchanged and still cover everything important.
+
+Zones can also be managed in the web page ("My alert zones"). Create the token once on the server with
+`python3 /opt/geowatch/zones.py token`; the page asks for it on first use and remembers it in that browser.
+The ntfy topic can only be changed on the server.
