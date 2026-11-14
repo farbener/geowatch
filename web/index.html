@@ -139,6 +139,9 @@ const fastRenderer = L.canvas({ padding: .5 });  // thousands of fire points: ca
 let signals = null;
 const $ = id => document.getElementById(id);
 let data = null;
+let myZones = [];       // loaded from /api/zones when a token is stored
+let onlyNew = false;    // "View new": show only events that arrived since the last visit
+const zoneLayer = L.layerGroup().addTo(map);
 
 // Feed titles are untrusted: always insert as text, never as HTML.
 function el(tag, cls, text) {
@@ -171,7 +174,30 @@ function fillRegions() {
   add("", "Everywhere");
   add("hotspots", "Watched regions only");
   add("world", "Rest of the world only");
+  add("zones", "My alert zones");
   data.hotspots.forEach(h => add(h.id, h.name));
+}
+
+function regionMatch(e, region) {
+  if (region === "zones") return inMyZones(e);
+  return region === "hotspots" ? e.hotspot !== "world" : e.hotspot === region;
+}
+
+function distanceKm(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180, a = Math.sin((lat2 - lat1) * r / 2) ** 2 +
+    Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin((lon2 - lon1) * r / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(a));
+}
+
+// Same rule as the phone push: headline names the zone, or an exactly placed event lies inside the radius.
+function inMyZones(e) {
+  const title = e.title.toLowerCase(), today = new Date().toISOString().slice(0, 10);
+  return myZones.some(z => (!z.until || z.until >= today) &&
+    (z.keywords.some(k => title.includes(k)) || (e.exact && distanceKm(z.lat, z.lon, e.lat, e.lon) <= z.radius_km)));
+}
+
+function isNew(e) {
+  return !baseline || !baseline.events.includes(e.sources[0].url);
 }
 
 function visibleEvents() {
@@ -180,7 +206,7 @@ function visibleEvents() {
   const since = Date.now() / 1000 - $("hours").value * 3600;
   return data.events.filter(e =>
     (e.verified || $("showUnverified").checked) && (e.important || !$("importantOnly").checked) && cats.has(e.category) && e.ts > since &&
-    (!region || (q && $("searchAll").checked) || (region === "hotspots" ? e.hotspot !== "world" : e.hotspot === region)) &&
+    (!region || (q && $("searchAll").checked) || regionMatch(e, region)) && (!onlyNew || isNew(e)) &&
     (!q || e.title.toLowerCase().includes(q)));
 }
 
@@ -200,7 +226,9 @@ function renderDetail() {
      "The Live list shows important events: confirmed by 2+ sources, or with severe keywords such as explosion, killed, missile. New entries are highlighted and trigger an alert.",
      "Brown circles are earthquakes (bigger = stronger). They are natural events unless reported otherwise.",
      "Small red points are satellite fire detections in selected conflict areas. Clusters along a front often mean shelling or strikes, but wildfires, farming and industry look the same.",
-     "Pick a region for an explanation of what is going on there."].forEach(t => box.append(el("p", "", t)));
+     "Dashed blue circles are your alert zones. \"My alert zones\" in the Region filter shows only what concerns them.",
+     "Verified needs 2+ independent reports: identical headlines count once (wire copies), and state-funded outlets alone are not enough.",
+     "Pick a region for an explanation and its activity over the last 60 days."].forEach(t => box.append(el("p", "", t)));
     return;
   }
   const verified = data.events.filter(e => e.hotspot === h.id && e.verified);
@@ -211,7 +239,37 @@ function renderDetail() {
     el("p", "", h.background),
     el("p", "", `Now: ${h.n24} verified events in the last 24h, usual level ${h.base} per day (${trend}).`),
     el("p", "", `Last 72h: ${count("movement")} troop movement, ${count("combat")} combat, ${count("diplomacy")} diplomacy, ${count("incident")} incident reports.`),
+    trendChart(h.id),
     el("p", "dim", "Background text is static (config.json, written Nov 2026)."));
+}
+
+// Verified events per day for one region, last 60 days, as a small bar chart.
+function trendChart(id) {
+  const box = el("div");
+  box.style.margin = "4px 14px 8px";
+  const series = (data.trends || {})[id] || {};
+  const days = [...Array(60)].map((_, i) => new Date(Date.now() - (59 - i) * 864e5).toISOString().slice(0, 10));
+  const values = days.map(d => series[d] || 0), max = Math.max(1, ...values);
+  const tracked = Object.keys(series).sort()[0];
+  const ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 300 50");
+  svg.setAttribute("width", "100%");
+  values.forEach((v, i) => {
+    const bar = document.createElementNS(ns, "rect"), barH = Math.max(v ? 2 : 0, v / max * 46);
+    bar.setAttribute("x", i * 5); bar.setAttribute("width", 4);
+    bar.setAttribute("y", 48 - barH); bar.setAttribute("height", barH);
+    bar.setAttribute("fill", i === 59 ? "#f5a524" : "#4da3ff");
+    const tip = document.createElementNS(ns, "title");
+    tip.textContent = `${days[i]}: ${v} verified`;
+    bar.append(tip);
+    svg.append(bar);
+  });
+  const base = document.createElementNS(ns, "rect");
+  base.setAttribute("y", 48); base.setAttribute("width", 300); base.setAttribute("height", 1); base.setAttribute("fill", "#2b3440");
+  svg.append(base);
+  box.append(el("small", "", `Verified events per day, last 60 days (max ${max})` +
+    (tracked ? `, tracked since ${tracked}` : ", no history yet")), svg);
+  return box;
 }
 
 function selectRegion(h) {
@@ -238,7 +296,7 @@ function renderPots() {
 
 function renderEvents() {
   const events = visibleEvents();
-  $("eventsTitle").textContent = `Events (${events.length})`;
+  $("eventsTitle").textContent = `${onlyNew ? "New events" : "Events"} (${events.length})`;
   $("events").replaceChildren();
   eventMarkers.clearLayers();
   const stacked = {};  // events sharing a position are spread in a spiral so all stay clickable
@@ -247,7 +305,7 @@ function renderEvents() {
     const where = (e.lat == null ? " · no map position" : "") + (e.feature ? " · background story" : "");
     const meta = el("small", "", `${regionName(e.hotspot)} · ${CATEGORIES[e.category][1]} · ${ago(e.ts)}${where} · `);
     e.sources.forEach((s, i) => {
-      const a = el("a", "", s.name);
+      const a = el("a", "", s.name + (s.state ? " (state-funded)" : ""));
       if (/^https?:\/\//.test(s.url)) { a.href = s.url; a.target = "_blank"; a.rel = "noopener noreferrer"; }
       meta.append(i ? ", " : "", a);
     });
@@ -309,6 +367,12 @@ function renderTicker(events) {
   }
 }
 
+function sourceNote(e) {
+  if (e.sources.length === 1) return e.sources[0].name + " only";
+  const n = e.sources.length, ind = e.independent ?? n;
+  return ind < n ? `${n} sources, ${ind} independent` : `${n} sources`;
+}
+
 // Live ticker: verified events and ones with severe keywords, newest first. Ignores the filters.
 const shownLive = new Set();
 function renderLive() {
@@ -323,7 +387,7 @@ function renderLive() {
     const dot = el("i", "dot");
     dot.style.cssText = `background:${CATEGORIES[e.category][0]};margin-top:6px`;
     const when = new Date(e.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    row.append(el("time", "", when), dot, el("span", "", `${e.title} (${e.verified ? e.sources.length + " sources" : e.sources[0].name + " only"})`));
+    row.append(el("time", "", when), dot, el("span", "", `${e.title} (${sourceNote(e)})`));
     row.title = regionName(e.hotspot);
     row.onclick = () => focusEvent(e);
     $("live").append(row);
@@ -362,9 +426,11 @@ function renderChanges() {
     const parts = [`${fresh.length} new events, ${verified} verified`, ...shifts];
     box.append(`Since your last visit (${ago(baseline.ts)}): `);
     box.append(el("b", fresh.length || shifts.length ? "warn" : "", parts.join(" · ")));
+    const newBtn = el("button", "", onlyNew ? "Show all" : "View new");
+    newBtn.onclick = () => { onlyNew = !onlyNew; render(); };
     const seenBtn = el("button", "", "Mark as seen");
-    seenBtn.onclick = () => { saveSnapshot(); baseline = snapshot(); render(); };
-    box.append(seenBtn);
+    seenBtn.onclick = () => { onlyNew = false; saveSnapshot(); baseline = snapshot(); render(); };
+    box.append(newBtn, seenBtn);
   }
   saveSnapshot();  // the next visit compares against the latest state seen here
 }
@@ -462,6 +528,11 @@ async function zoneApi(method, body, retried) {
 }
 
 function renderZones(zones) {
+  myZones = zones;
+  zoneLayer.clearLayers();
+  zones.forEach(z => L.circle([z.lat, z.lon], { radius: z.radius_km * 1000, color: "#7fb4ff", weight: 1,
+    dashArray: "4", fillOpacity: .05, interactive: false }).addTo(zoneLayer));
+  if (data) renderEvents();
   const list = $("zoneList");
   list.replaceChildren();
   const today = new Date().toISOString().slice(0, 10);
@@ -560,6 +631,7 @@ $("reset").onclick = () => {
   $("importantOnly").checked = false;
   $("searchAll").checked = true;
   $("q").value = "";
+  onlyNew = false;
   render();
 };
 load();

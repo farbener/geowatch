@@ -54,6 +54,7 @@ HOUR, DAY = 3600, 86400
 KEEP_DAYS = 8          # history needed for the 7-day heat baseline
 CLUSTER_WINDOW = 2 * DAY  # reports further apart are treated as separate events
 SHOW_WINDOW = 3 * DAY
+TREND_DAYS = 90
 STOPWORDS = set("with from that this says said after over have will into amid near more than "
                 "about been their they what when where which were would could news live".split())
 
@@ -303,6 +304,14 @@ def same_event(w, vec, c):
     return shared >= CFG["min_shared_words"] and shared >= 0.5 * min(len(w), len(c["words"]))
 
 
+STATE_FUNDED = set(CFG.get("state_funded_sources", []))
+
+
+def independent_count(titles):
+    """Outlets running the identical headline are almost always republishing one wire report: count once."""
+    return len({re.sub(r"[^a-z0-9]", "", t.lower()) for t in titles.values()})
+
+
 def cluster(rows, vectors={}):
     """Group reports of the same event: same hotspot, close in time, similar titles."""
     clusters = []
@@ -311,13 +320,18 @@ def cluster(rows, vectors={}):
         for c in clusters:
             if c["hotspot"] == hotspot and ts - c["first_ts"] < CLUSTER_WINDOW and same_event(w, vec, c):
                 c["sources"].setdefault(source, url)
+                c["titles"].setdefault(source, title)
                 c["ts"] = ts
                 break
         else:
             clusters.append({"title": title, "hotspot": hotspot, "category": category, "words": w, "vec": vec,
-                             "first_ts": ts, "ts": ts, "sources": {source: url}})
+                             "first_ts": ts, "ts": ts, "sources": {source: url},
+                             "titles": {source: title}})
     for c in clusters:
-        c["verified"] = len(c["sources"]) >= CFG["min_sources"]
+        c["independent"] = independent_count(c["titles"])
+        # verified: enough independent reports, and not only from state-funded outlets
+        c["verified"] = (c["independent"] >= CFG["min_sources"]
+                         and any(name not in STATE_FUNDED for name in c["sources"]))
     return clusters
 
 
@@ -341,7 +355,8 @@ def to_event(c):
             "important": not is_feature and (c["verified"] or bool(SEVERE_RE.search(c["title"]))),
             "feature": is_feature,
             "lat": lat, "lon": lon, "exact": bool(place),
-            "sources": [{"name": n, "url": u} for n, u in c["sources"].items()]}
+            "independent": c["independent"],
+            "sources": [{"name": n, "url": u, "state": n in STATE_FUNDED} for n, u in c["sources"].items()]}
 
 
 def local_settings():
@@ -412,6 +427,28 @@ def send_alerts(con, events, now):
     con.commit()
 
 
+def update_trends(con, clusters, now):
+    """Store verified events per region and day. Recent days are recomputed, older ones stay as they were."""
+    con.execute("CREATE TABLE IF NOT EXISTS daily (day TEXT, hotspot TEXT, verified INTEGER, total INTEGER,"
+                " PRIMARY KEY (day, hotspot))")
+    counts = {}
+    for c in clusters:
+        day = datetime.fromtimestamp(c["first_ts"], timezone.utc).strftime("%Y-%m-%d")
+        entry = counts.setdefault((day, c["hotspot"]), [0, 0])
+        entry[0] += c["verified"]
+        entry[1] += 1
+    oldest = datetime.fromtimestamp(now - (KEEP_DAYS - 1) * DAY, timezone.utc).strftime("%Y-%m-%d")
+    for (day, hotspot), (verified, total) in counts.items():
+        if day >= oldest:  # days at the edge of the item window are incomplete; keep their earlier count
+            con.execute("INSERT OR REPLACE INTO daily VALUES (?,?,?,?)", (day, hotspot, verified, total))
+    con.commit()
+    since = datetime.fromtimestamp(now - TREND_DAYS * DAY, timezone.utc).strftime("%Y-%m-%d")
+    trends = {}
+    for day, hotspot, verified in con.execute("SELECT day, hotspot, verified FROM daily WHERE day >= ?", (since,)):
+        trends.setdefault(hotspot, {})[day] = verified
+    return trends
+
+
 def build(con, errors):
     now = int(time.time())
     stored = con.execute("SELECT source, title, url, ts FROM items ORDER BY ts").fetchall()
@@ -440,6 +477,7 @@ def build(con, errors):
         "hotspots": [{k: h.get(k, "") for k in ("id", "name", "lat", "lon", "background")} | heat(clusters, h["id"], now)
                      for h in CFG["hotspots"]],
         "events": sorted(events, key=lambda e: -e["ts"]),
+        "trends": update_trends(con, clusters, now),
     }
     (WEB / "data.json").write_text(json.dumps(data))
     send_alerts(con, data["events"], now)

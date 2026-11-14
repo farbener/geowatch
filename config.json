@@ -18,6 +18,7 @@
   "feature_phrases": ["one year on", "years on", "year on", "anniversary", "history of", "in time", "star", "actor",
     "actress", "documentary", "film", "films", "movie", "book", "books", "novel", "analysis", "opinion", "explainer",
     "what we know", "podcast", "obituary", "interview", "in pictures", "remembering", "remembers", "quiz", "recipe"],
+  "state_funded_sources": ["Al Jazeera", "CNA", "Yonhap"],
   "military_context": ["troop", "military", "army", "navy", "naval", "warship", "air force", "soldier", "marines", "nato",
     "fighter jet", "aircraft carrier", "battalion", "brigade", "bomber", "submarine", "national guard", "pentagon"],
   "places": {

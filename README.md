@@ -108,3 +108,14 @@ The ntfy topic can only be changed on the server.
 Headlines matching `feature_phrases` (anniversaries, interviews, history pieces, analysis, ...) stay in the
 event list, marked "background story", but are never treated as important: no Live list, no banner, no alerts.
 Phrases match whole words only.
+
+## Independence, trends, zone view
+
+- **Verified** needs `min_sources` independent reports. Identical headlines from different outlets count once
+  (they are almost always the same wire report). Outlets in `state_funded_sources` count, but cannot verify an
+  event on their own. That list is a judgement call; edit it in `config.json`.
+- **Trends:** verified events per region and day are kept for 90 days (table `daily`), shown as a 60-day chart
+  when a region is selected. History starts on the day this version was installed.
+- **My alert zones** in the Region filter shows only events matching your zones, with the same rule as the
+  phone push. Zones are drawn as dashed circles once the page has your token.
+- **View new** (status line) shows only events that arrived since your last visit.
