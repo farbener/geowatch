@@ -247,6 +247,7 @@ function renderDetail() {
     el("p", "", h.background),
     el("p", "", `Now: ${h.n24} verified events in the last 24h, usual level ${h.base} per day (${trend}).`),
     el("p", "", `Last 72h: ${count("movement")} troop movement, ${count("combat")} combat, ${count("diplomacy")} diplomacy, ${count("incident")} incident reports.`),
+    whyLevel(h),
     trendChart(h.id),
     el("p", "dim", "Background text is static (config.json, written Nov 2026)."));
 }
@@ -277,6 +278,29 @@ function trendChart(id) {
   svg.append(base);
   box.append(el("small", "", `Verified events per day, last 60 days (max ${max})` +
     (tracked ? `, tracked since ${tracked}` : ", no history yet")), svg);
+  return box;
+}
+
+// Explains the heat level with the rule and the verified events of the last 24h that produced it.
+function whyLevel(h) {
+  const box = el("div");
+  box.style.margin = "4px 14px 8px";
+  const rule = {
+    boiling: `Boiling: ${h.n24} verified events in 24h, at least 3 and at least double the usual ${h.base} per day.`,
+    rising: `Rising: ${h.n24} verified event(s) in 24h, more than the usual ${h.base} per day (average of the 6 days before).`,
+    stable: `Stable: ${h.n24} verified event(s) in 24h, not more than the usual ${h.base} per day.`,
+  }[h.level];
+  box.append(el("b", "", `Why ${h.level}`), el("p", "", rule));
+  if (h.n24 <= 2 && h.level !== "stable")
+    box.append(el("small", "", "Low numbers: one or two events are enough to change the level, so treat this as a hint, not a trend."));
+  (h.drivers || []).forEach(d => {
+    const line = el("div", "line");
+    line.style.marginTop = "4px";
+    const a = el("a", "", d.title);
+    if (/^https?:\/\//.test(d.url)) { a.href = d.url; a.target = "_blank"; a.rel = "noopener noreferrer"; }
+    line.append(el("small", "", `${ago(d.ts)} · ${CATEGORIES[d.category][1]} · ${d.outlets} outlets · `), a);
+    box.append(line);
+  });
   return box;
 }
 
@@ -478,11 +502,16 @@ function renderChanges() {
     const seen = new Set(baseline.events);
     const fresh = data.events.filter(e => !seen.has(e.sources[0].url));
     const verified = fresh.filter(e => e.verified).length;
-    const shifts = data.hotspots.filter(h => baseline.levels[h.id] && baseline.levels[h.id] !== h.level)
-      .map(h => `${h.name}: ${baseline.levels[h.id]} → ${h.level}`);
-    const parts = [`${fresh.length} new events, ${verified} verified`, ...shifts];
+    const shifted = data.hotspots.filter(h => baseline.levels[h.id] && baseline.levels[h.id] !== h.level);
     box.append(`Since your last visit (${ago(baseline.ts)}): `);
-    box.append(el("b", fresh.length || shifts.length ? "warn" : "", parts.join(" · ")));
+    box.append(el("b", fresh.length || shifted.length ? "warn" : "", `${fresh.length} new events, ${verified} verified`));
+    shifted.forEach(h => {  // click a change to see why
+      const link = el("a", "warn", `${h.name}: ${baseline.levels[h.id]} → ${h.level}`);
+      link.href = "#";
+      link.title = "Show why";
+      link.onclick = ev => { ev.preventDefault(); if ($("region").value !== h.id) selectRegion(h); $("detail").scrollIntoView({ behavior: "smooth" }); };
+      box.append(" · ", link);
+    });
     const newBtn = el("button", "", onlyNew ? "Show all" : "View new");
     newBtn.onclick = () => { onlyNew = !onlyNew; render(); if (onlyNew) focusNew(); };
     const seenBtn = el("button", "", "Mark as seen");

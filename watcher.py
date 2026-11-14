@@ -354,11 +354,15 @@ def cluster(rows, vectors={}):
 
 def heat(clusters, hotspot_id, now):
     """Compare verified events in the last 24h with the daily average of the 6 days before."""
-    mine = [c["first_ts"] for c in clusters if c["hotspot"] == hotspot_id and c["verified"]]
-    n24 = sum(ts > now - DAY for ts in mine)
-    base = sum(now - 7 * DAY < ts <= now - DAY for ts in mine) / 6
+    verified = [c for c in clusters if c["hotspot"] == hotspot_id and c["verified"]]
+    recent = sorted((c for c in verified if c["first_ts"] > now - DAY), key=lambda c: -c["first_ts"])
+    n24 = len(recent)
+    base = sum(now - 7 * DAY < c["first_ts"] <= now - DAY for c in verified) / 6
     level = "boiling" if n24 >= 3 and n24 >= 2 * base else "rising" if n24 > base else "stable"
-    return {"n24": n24, "base": round(base, 1), "level": level}
+    # the events behind the level, so the page can explain a change
+    drivers = [{"title": c["title"], "url": next(iter(c["sources"].values())), "outlets": len(c["sources"]),
+                "category": c["category"], "ts": c["first_ts"]} for c in recent[:6]]
+    return {"n24": n24, "base": round(base, 1), "level": level, "drivers": drivers}
 
 
 def to_event(c):
