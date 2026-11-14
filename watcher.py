@@ -219,6 +219,17 @@ SEVERE_RE = keyword_re(CFG["severe_keywords"])
 # Whole-word match (unlike the keyword lists), so "star" does not hit "start" or "Starmer".
 FEATURE_RE = re.compile(r"\b(" + "|".join(map(re.escape, CFG.get("feature_phrases", []))) + r")\b", re.I)
 MOVEMENT_RE = dict(CATEGORY_RE)["movement"]
+
+
+def word_re(words):
+    """Whole-word match, for short words such as "eu" or "uk"."""
+    return re.compile(r"\b(" + "|".join(map(re.escape, words)) + r")\b", re.I) if words else re.compile(r"(?!x)x")
+
+
+POLITICS_RE = word_re(CFG.get("politics_keywords", []))
+POLITICS_PLACES_RE = word_re(CFG.get("politics_countries", []))
+POLITICS_EXCLUDE_RE = word_re(CFG.get("politics_exclude", []))
+BIAS = CFG.get("source_bias", {})
 PLACE_RE = [(tuple(pos), keyword_re([name])) for name, pos in CFG.get("places", {}).items()]
 HOTSPOT_POS = {h["id"]: (h["lat"], h["lon"]) for h in CFG["hotspots"]}
 
@@ -231,12 +242,15 @@ def classify(title):
     """Return (hotspot, category); (None, None) means the item is not relevant."""
     hotspot = first_match(HOTSPOT_RE, title)
     incident = "incident" if INCIDENT_RE.search(title) else None
+    politics = "politics" if POLITICS_RE.search(title) and not POLITICS_EXCLUDE_RE.search(title) else None
     if hotspot:
-        return hotspot, first_match(CATEGORY_RE, title) or incident
+        return hotspot, first_match(CATEGORY_RE, title) or incident or politics
     if incident:
         return "world", incident    # security incidents anywhere in the world
     if MILITARY_RE.search(title) and MOVEMENT_RE.search(title):
         return "world", "movement"  # military movements outside the watched regions
+    if politics and POLITICS_PLACES_RE.search(title):
+        return "world", "politics"  # elections and votes in the countries chosen in politics_countries
     return None, None
 
 
@@ -356,7 +370,8 @@ def to_event(c):
             "feature": is_feature,
             "lat": lat, "lon": lon, "exact": bool(place),
             "independent": c["independent"],
-            "sources": [{"name": n, "url": u, "state": n in STATE_FUNDED} for n, u in c["sources"].items()]}
+            "sources": [{"name": n, "url": u, "state": n in STATE_FUNDED, "title": c["titles"][n], "bias": BIAS.get(n)}
+                        for n, u in c["sources"].items()]}
 
 
 def local_settings():
@@ -405,7 +420,7 @@ def send_alerts(con, events, now):
         return
     alerts = []  # (dedupe key, title, body, link, priority)
     for e in events:
-        if e["category"] == "diplomacy" or e["feature"] or e["ts"] < now - 6 * HOUR:
+        if e["category"] in ("diplomacy", "politics") or e["feature"] or e["ts"] < now - 6 * HOUR:
             continue
         for z in zones:
             if zone_matches(z, e["title"], e["lat"], e["lon"], e["exact"]):

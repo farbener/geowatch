@@ -119,3 +119,15 @@ Phrases match whole words only.
 - **My alert zones** in the Region filter shows only events matching your zones, with the same rule as the
   phone push. Zones are drawn as dashed circles once the page has your token.
 - **View new** (status line) shows only events that arrived since your last visit.
+
+## Politics and coverage across the spectrum
+
+- **Politics** category: elections, votes, referendums, parliaments and coalitions, in watched regions and in the
+  countries listed in `politics_countries`. `politics_exclude` drops Federal Council, cantonal and municipal
+  elections. Politics is never pushed to the phone.
+- **Coverage panel:** click an event to see every outlet that reported it, its political rating and its own headline,
+  plus a left/center/right bar and a hint when one side of the spectrum did not cover it.
+- Ratings live in `source_bias` (config.json): AllSides where available, otherwise Media Bias/Fact Check (MBFC).
+  The AllSides values come from an older community snapshot and are marked as such; MBFC values are from its
+  dataset as of 14 Nov 2026. Ratings describe the outlet, not the article. Most feeds are centre to lean-left,
+  so a missing right-leaning view is common and partly reflects the feed selection.

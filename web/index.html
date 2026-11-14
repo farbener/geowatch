@@ -56,6 +56,12 @@
   #zoneForm { display:grid; grid-template-columns:1fr 70px; gap:6px; }
   #zoneForm input { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 6px; min-width:0; }
   #zoneMsg { font-size:12px; color:var(--rising); }
+  .coverage { margin-top:6px; padding:8px; background:var(--bg); border-radius:6px; font-size:13px; cursor:default; }
+  .covbar { display:flex; height:10px; border-radius:5px; overflow:hidden; margin:4px 0 2px; background:#2b3440; }
+  .covlegend { display:flex; justify-content:space-between; font-size:11px; color:var(--dim); }
+  .coverage .line { margin-top:6px; }
+  .coverage .line b { font-weight:600; }
+  .coverage .line small { display:inline; margin:0; }
   .pot, .event { padding:7px 14px; border-bottom:1px solid var(--line); }
   .pot { display:flex; justify-content:space-between; cursor:pointer; }
   .pot.active { background:#26303c; }
@@ -122,7 +128,7 @@
 const LEVEL_COLORS = { boiling: "#e5484d", rising: "#f5a524", stable: "#3fb68b" };
 const CATEGORIES = {  // id: [colour, label]
   movement: ["#4da3ff", "Troop movement"], combat: ["#ff7a45", "Combat"],
-  diplomacy: ["#b58cff", "Diplomacy"], incident: ["#f5d90a", "Security incident"],
+  diplomacy: ["#b58cff", "Diplomacy"], incident: ["#f5d90a", "Security incident"], politics: ["#f472b6", "Politics"],
 };
 const map = L.map("map", { maxBounds: [[-85, -180], [85, 180]], maxBoundsViscosity: 1 });
 // On wide screens the world would repeat side by side when zoomed out; never show more than one world.
@@ -228,6 +234,7 @@ function renderDetail() {
      "Small red points are satellite fire detections in selected conflict areas. Clusters along a front often mean shelling or strikes, but wildfires, farming and industry look the same.",
      "Dashed blue circles are your alert zones. \"My alert zones\" in the Region filter shows only what concerns them.",
      "Verified needs 2+ independent reports: identical headlines count once (wire copies), and state-funded outlets alone are not enough.",
+     "Click an event in the list to see which outlets covered it, how they are rated politically (AllSides, MBFC as fallback) and each outlet's own headline. Most feeds here are rated centre to lean-left, so a missing right-leaning view is common.",
      "Pick a region for an explanation and its activity over the last 60 days."].forEach(t => box.append(el("p", "", t)));
     return;
   }
@@ -310,6 +317,12 @@ function renderEvents() {
       meta.append(i ? ", " : "", a);
     });
     row.append(meta);
+    row.style.cursor = "pointer";
+    row.addEventListener("click", ev => {  // toggle the coverage panel under this event
+      if (ev.target.tagName === "A") return;
+      const open = row.querySelector(".coverage");
+      open ? open.remove() : row.append(coveragePanel(e));
+    });
     $("events").append(row);
     if (e.lat == null) return;
 
@@ -318,12 +331,12 @@ function renderEvents() {
     const r = e.exact ? 0.3 * Math.sqrt(n - 1) : 1.5 * Math.sqrt(n);
     const pos = [e.lat + r * Math.cos(n * 2.4), e.lon + r * Math.sin(n * 2.4)];
     const popup = row.cloneNode(true);
+    popup.querySelectorAll(".coverage").forEach(c => c.remove());
     popup.className = "event popup";
     popup.style.color = "#111";
     if (!e.exact) popup.append(el("small", "", "Position approximate (region centre)"));
     const marker = L.circleMarker(pos, { radius: 5, weight: 2, color: CATEGORIES[e.category][0],
       fillOpacity: e.verified ? .9 : .15, dashArray: e.verified ? null : "3" }).bindPopup(popup).addTo(eventMarkers);
-    row.style.cursor = "pointer";
     row.onclick = ev => { if (ev.target.tagName !== "A") { map.setView(pos, Math.max(map.getZoom(), 5)); marker.openPopup(); } };
   });
   if (!events.length) {
@@ -334,6 +347,48 @@ function renderEvents() {
       ? `No visible events, but ${hidden} match "${q}" and are hidden by the other filters (category, region, period or unverified). Try Reset filters.`
       : "No matching events."));
   }
+}
+
+// ---------- coverage across the political spectrum ----------
+
+const BIAS = [  // order left to right: [key, label, colour]
+  ["left", "Left", "#2563eb"], ["left-center", "Lean Left", "#60a5fa"], ["center", "Center", "#a1a1aa"],
+  ["right-center", "Lean Right", "#f87171"], ["right", "Right", "#dc2626"]];
+
+// Per story: how the outlets reporting it are rated, and how each one headlined it.
+function coveragePanel(e) {
+  const box = el("div", "coverage");
+  box.onclick = ev => ev.stopPropagation();  // clicks inside the panel do not close it
+  const rated = e.sources.filter(s => s.bias);
+  const counts = Object.fromEntries(BIAS.map(([k]) => [k, rated.filter(s => s.bias.bias === k).length]));
+  box.append(el("b", "", `Coverage: ${e.sources.length} outlet(s), ${rated.length} rated`));
+  if (rated.length) {
+    const bar = el("div", "covbar");
+    BIAS.forEach(([k, label, color]) => {
+      if (!counts[k]) return;
+      const seg = el("div");
+      seg.style.cssText = `width:${counts[k] / rated.length * 100}%;background:${color}`;
+      seg.title = `${label}: ${counts[k]}`;
+      bar.append(seg);
+    });
+    const legend = el("div", "covlegend");
+    legend.append(el("span", "", `Left ${counts.left + counts["left-center"]}`), el("span", "", `Center ${counts.center}`),
+                  el("span", "", `Right ${counts["right-center"] + counts.right}`));
+    box.append(bar, legend);
+    const left = counts.left + counts["left-center"], right = counts["right-center"] + counts.right;
+    if (rated.length >= 2 && (!left || !right))
+      box.append(el("small", "", `Not covered by any ${left ? "right" : "left"}-leaning outlet in your feeds.`));
+  }
+  e.sources.forEach(s => {
+    const line = el("div", "line");
+    const name = el("a", "", s.name);
+    if (/^https?:\/\//.test(s.url)) { name.href = s.url; name.target = "_blank"; name.rel = "noopener noreferrer"; }
+    const rating = s.bias ? `${BIAS.find(b => b[0] === s.bias.bias)[1]}, ${s.bias.rater}` : "not rated";
+    line.append(name, el("small", "", ` (${rating}${s.state ? ", state-funded" : ""}): `), s.title || e.title);
+    box.append(line);
+  });
+  box.append(el("small", "", "Ratings describe the outlet, not this article. Click the event again to close."));
+  return box;
 }
 
 // Jump to an event: centre the map on it and show it in the list via the search box.
