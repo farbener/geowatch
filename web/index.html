@@ -752,9 +752,10 @@ function renderNetOutages() {
   list.slice(0, 12).forEach(o => {
     const row = el("div");
     const when = o.start ? new Date(o.start).toLocaleString([], { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "?";
-    const name = el(o.link ? "a" : "b", "", o.countries.join(", ") || "Unknown");
+    // platform outages (e.g. a cloud service) have no country: they are global, not "unknown"
+    const name = el(o.link ? "a" : "b", "", o.countries.join(", ") || (o.type === "platform" ? "Global (platform)" : "No location given"));
     if (o.link && /^https?:\/\//.test(o.link)) { name.href = o.link; name.target = "_blank"; name.rel = "noopener noreferrer"; }
-    row.append(name, el("small", "", ` · ${o.cause || "cause unknown"}${o.type ? ", " + o.type : ""} · since ${when}${o.end ? ", ended" : ", ongoing"}`));
+    row.append(name, el("small", "", ` · ${o.cause || "cause unknown"}${o.type ? ", " + o.type : ""} · since ${when}${o.end ? ", ended" : ", no end reported yet"}`));
     if (o.description) row.append(el("div", "", o.description));
     box.append(row);
   });
