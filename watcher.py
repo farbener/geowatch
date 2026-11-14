@@ -197,15 +197,20 @@ def fetch_internet_outages():
     return outages
 
 
-def fetch_markets():
-    """Daily closes from Yahoo Finance's public chart data (no key); change versus the previous close."""
+def fetch_markets(errors):
+    """Daily closes from Yahoo Finance's public chart data (no key); change versus the previous close.
+    Each symbol fails on its own, so one bad symbol does not hide the others."""
     out = []
     for m in SIGNALS["markets"]["symbols"]:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(m['symbol'])}?range=10d&interval=1d"
-        result = json.loads(fetch(url))["chart"]["result"][0]
-        days = [(t, c) for t, c in zip(result["timestamp"], result["indicators"]["quote"][0]["close"]) if c is not None]
-        if len(days) < 2:
-            raise ValueError(f"{m['name']}: not enough data")
+        try:
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(m['symbol'])}?range=10d&interval=1d"
+            result = json.loads(fetch(url))["chart"]["result"][0]
+            days = [(t, c) for t, c in zip(result["timestamp"], result["indicators"]["quote"][0]["close"]) if c is not None]
+            if len(days) < 2:
+                raise ValueError("not enough data")
+        except Exception as e:
+            errors.append(f"Markets: {m['name']}: {e}")
+            continue
         (_, prev), (ts, last) = days[-2], days[-1]
         out.append({"name": m["name"], "price": round(last, 2), "change_pct": round((last / prev - 1) * 100, 2),
                     "date": datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d"), "alert_pct": m["alert_pct"]})
@@ -234,10 +239,7 @@ def update_signals(errors):
                 out["internet_status"] = "failed"
                 errors.append(f"Internet outages: {e}")
     if SIGNALS.get("markets", {}).get("enabled"):
-        try:
-            out["markets"] = fetch_markets()
-        except Exception as e:
-            errors.append(f"Markets: {e}")
+        out["markets"] = fetch_markets(errors)
     if SIGNALS.get("earthquakes", {}).get("enabled"):
         try:
             out["earthquakes"] = fetch_earthquakes()

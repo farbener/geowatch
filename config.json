@@ -57,8 +57,8 @@
           "alert_pct": 3
         },
         {
-          "name": "EU gas (TTF)",
-          "symbol": "TTF=F",
+          "name": "US gas",
+          "symbol": "NG=F",
           "alert_pct": 6
         },
         {
